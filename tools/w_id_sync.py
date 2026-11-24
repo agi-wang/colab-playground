@@ -148,9 +148,9 @@ def local_accounts():
     return data
 
 
-def vault():
+def vault(accounts=None):
     entries = []
-    for account in local_accounts()["accounts"]:
+    for account in accounts if accounts is not None else local_accounts()["accounts"]:
         account_id = account["id"]
         if not isinstance(account_id, str) or not account_id.isascii() or not account_id.replace("-", "").isalnum():
             raise RuntimeError("Invalid account ID")
@@ -199,11 +199,13 @@ def merged(local, incoming):
     return list(result.values())
 
 
-def restore(entries):
-    existing = local_accounts()
+def restore(entries, existing=None):
+    app_managed = existing is not None
+    existing = existing if existing is not None else local_accounts()
     known = {account["id"] for account in existing["accounts"]}
     emails = {email.lower() for account in existing["accounts"] if (email := account.get("email"))}
     count = 0
+    added = []
     for entry in entries:
         account = entry["account"]
         credential = entry["credential"]
@@ -217,11 +219,12 @@ def restore(entries):
             raise RuntimeError("Invalid saved credential")
         keyring.set_password(VAULT_SERVICE, "account:" + account_id, credential)
         existing["accounts"].append(account)
+        added.append(account)
         known.add(account_id)
         if email:
             emails.add(email.lower())
         count += 1
-    if count:
+    if count and not app_managed:
         path = data_path()
         path.parent.mkdir(parents=True, exist_ok=True)
         temp = path.with_name("." + path.name + ".sync-" + secrets.token_hex(4))
@@ -235,7 +238,7 @@ def restore(entries):
         finally:
             if temp.exists():
                 temp.unlink()
-    return count
+    return added
 
 
 def main():
@@ -243,6 +246,7 @@ def main():
     parser.add_argument("command", choices=("login", "status", "begin", "finish", "push", "pull"))
     parser.add_argument("--pin-stdin", action="store_true")
     parser.add_argument("--no-login", action="store_true")
+    parser.add_argument("--app-managed", action="store_true")
     args = parser.parse_args()
     if args.command == "login":
         oauth_login()
@@ -263,23 +267,25 @@ def main():
         oauth_finish(flow)
         print("W-ID login complete")
         return
+    app_input = json.load(sys.stdin) if args.app_managed else None
     token = access_token(not args.no_login)
-    pin = sys.stdin.readline().rstrip("\n") if args.pin_stdin else getpass.getpass("Six-digit sync PIN: ")
+    pin = app_input["pin"] if app_input is not None else (sys.stdin.readline().rstrip("\n") if args.pin_stdin else getpass.getpass("Six-digit sync PIN: "))
     if len(pin) != 6 or not pin.isascii() or not pin.isdecimal():
         raise RuntimeError("PIN must contain exactly six digits")
     key = unlock(token, pin)
     incoming, etag = remote(token, key)
     if args.command == "pull":
-        print("Restored %d account(s)" % restore(incoming))
+        added = restore(incoming, app_input["accounts"] if app_input is not None else None)
+        print(json.dumps({"added": added}) if app_input is not None else "Restored %d account(s)" % len(added))
     else:
-        entries = merged(vault(), incoming)
+        entries = merged(vault(app_input["accounts"]["accounts"] if app_input is not None else None), incoming)
         blob = encrypt(entries, key)
         if len(blob) > MAX_SNAPSHOT:
             raise RuntimeError("Encrypted snapshot exceeds 1 MiB")
         status, _, _ = request(SYNC_URL + "/v1/snapshot", method="PUT", data=blob, token=token, etag=etag)
         if status != 204:
             raise RuntimeError("Snapshot upload failed: HTTP %d" % status)
-        print("Synced %d account(s)" % len(entries))
+        print(json.dumps({"added": []}) if app_input is not None else "Synced %d account(s)" % len(entries))
 
 
 if __name__ == "__main__":

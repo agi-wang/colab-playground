@@ -85,9 +85,9 @@ They apply to every contributor and agent.
 
 Properties the code must keep. A change that breaks one is wrong even if every test passes.
 
-- **Google tokens never leave the account helper's process.** The app sees only the helper's
-  non-secret output. The CLI's active token is never cleared without a backup that can be
-  restored.
+- **The app sees only non-secret account metadata.** Saved Google credentials stay in the
+  helper's keyring and pass through the sync script only to form an encrypted snapshot.
+  The CLI's active token is never cleared without a backup that can be restored.
 - **The app never writes a secret to its files or logs**, and masks the ones it knows in what it
   shows.
 - **Plugins never execute anything on the user's machine.** A plugin is a manifest plus a script

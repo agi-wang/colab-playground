@@ -1322,17 +1322,23 @@ impl Backend for RealBackend {
         }
         let _guard = slot_write(&self.inner.slot, SLOT_TIMEOUT)?;
         let command = if pull { "pull" } else { "push" };
-        let mut input = pin.as_bytes().to_vec();
-        input.push(b'\n');
-        self.inner.helper()?.sync_call(
+        let accounts = self.inner.st().accounts.all().to_vec();
+        let input = serde_json::to_vec(&serde_json::json!({
+            "pin": pin,
+            "accounts": { "version": 1, "accounts": accounts },
+        }))?;
+        let output = self.inner.helper()?.sync_call(
             command,
-            &["--pin-stdin".into(), "--no-login".into()],
+            &["--app-managed".into(), "--no-login".into()],
             &input,
             cancel,
         )?;
         if pull {
-            self.inner.st().accounts =
-                AccountStore::load(&self.inner.cfg.local_dir.join("accounts.json"))?;
+            let result: serde_json::Value = serde_json::from_str(&output)?;
+            let added: Vec<Account> = serde_json::from_value(result["added"].clone())?;
+            for account in added {
+                self.inner.st().accounts.upsert(account)?;
+            }
         }
         self.inner.accounts_view(cancel, false)
     }

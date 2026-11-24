@@ -1316,8 +1316,8 @@ impl Backend for MockBackend {
 
     fn begin_sync_login(&self, _: &CancelToken) -> Result<SyncLogin> {
         Ok(SyncLogin {
-            url: "https://auth.myfastools.com/oauth/device?user_code=DEMO-0000".into(),
-            code: "DEMO-0000".into(),
+            url: String::new(),
+            code: String::new(),
         })
     }
 

@@ -5,8 +5,9 @@
 //! another token into that slot. That copying is done by
 //! `assets/account_helper.py`, which runs with the CLI's own interpreter (so it
 //! has `keyring` and `google-auth`) and keeps saved tokens in the same keyring
-//! (`colab-playground` / `account:<id>`). **Tokens never leave that Python
-//! process**: this module only ever sees the helper's non-secret JSON.
+//! (`colab-playground` / `account:<id>`). The W-ID sync script runs in the
+//! same interpreter and uploads only encrypted snapshots. This module sees
+//! only non-secret account metadata.
 //!
 //! Adding an account is `begin-add` (back up the active token, verified by
 //! read-back, then clear the slot) → `colab whoami` login → `finish-add`
