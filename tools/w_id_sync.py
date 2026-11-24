@@ -33,7 +33,7 @@ MAX_SNAPSHOT = 1024 * 1024
 
 
 def request(url, *, method="GET", data=None, token=None, etag=None):
-    headers = {"Accept": "application/json"}
+    headers = {"Accept": "application/json", "User-Agent": "Colab-Playground-Sync/0.5"}
     if token:
         headers["Authorization"] = "Bearer " + token
     if etag is not None:
