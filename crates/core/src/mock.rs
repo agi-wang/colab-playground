@@ -578,10 +578,16 @@ impl World {
         let live = self.live_names(id);
         let fails = self.failures.usage_fetch_fails;
         let reading = self.usage_of(id);
+        let listed: BTreeSet<String> = self
+            .runtimes
+            .iter()
+            .filter(|r| &r.account == id)
+            .map(|r| r.endpoint.clone())
+            .collect();
         let entry = self.usage.entry(id.clone()).or_default();
         match (fails, reading) {
             (false, Some(u)) => {
-                entry.record_success(u, now, &live);
+                entry.record_success(u, now, &live, Some(&listed));
                 entry.ownership_verified = live.is_empty() || verified;
                 if verified && let Some(name) = u.sole_session(&live) {
                     let reading = RateReading {

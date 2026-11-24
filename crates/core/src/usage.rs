@@ -253,6 +253,10 @@ pub struct RateAttribution {
     /// Runtimes of the account beyond the managed sessions at the last reading.
     #[serde(default)]
     unmanaged: Option<usize>,
+    /// Endpoints of the account's runtimes at the last reading, if it came
+    /// with their listing.
+    #[serde(default)]
+    listed: Option<BTreeSet<String>>,
     /// The first of the readings since which the rate and the runtimes have
     /// stayed as they are.
     #[serde(default, with = "serde_secs::option")]
@@ -345,23 +349,35 @@ impl RateAttribution {
         account_rate: f64,
         assignments: u32,
         live: &BTreeSet<String>,
+        listed: Option<&BTreeSet<String>>,
     ) {
         let rate = account_rate.max(0.0);
         let unmanaged = (assignments as usize).saturating_sub(live.len());
         let before = self.unmanaged.replace(unmanaged).unwrap_or(unmanaged);
-        let mut came_or_went = unmanaged.abs_diff(before);
+        let mut sessions = 0;
         for name in self.rates.keys().filter(|name| !live.contains(*name)) {
-            came_or_went += 1;
+            sessions += 1;
             self.changes.stopped.insert(name.clone());
         }
+        // Unmanaged runtimes that went: the endpoints that are no longer
+        // listed, beyond those of the sessions that stopped. As many may
+        // have come, which their number alone does not show.
+        let went = match (&self.listed, listed) {
+            (Some(was), Some(now)) => was.difference(now).count().saturating_sub(sessions),
+            _ => 0,
+        };
+        self.listed = listed.cloned();
+        let came = (unmanaged + went).saturating_sub(before);
+        let outside = (went + came).max(unmanaged.abs_diff(before));
         for name in live.iter().filter(|name| !self.rates.contains_key(*name)) {
-            came_or_went += 1;
+            sessions += 1;
             self.changes.started.insert(name.clone());
         }
+        let came_or_went = sessions + outside;
         let moved = self
             .last_rate
             .is_none_or(|last| (last - rate).abs() > NO_RATE);
-        self.changes.other |= unmanaged != before;
+        self.changes.other |= outside > 0;
         self.changes.runtimes += came_or_went;
         self.changes.moves += usize::from(moved);
         if self.changes.moves > self.changes.runtimes {
@@ -490,13 +506,21 @@ pub struct AccountUsage {
 }
 
 impl AccountUsage {
-    pub fn record_success(&mut self, usage: Usage, now: SystemTime, live: &BTreeSet<String>) {
+    /// `listed` are the endpoints of the account's runtimes, if they were
+    /// listed for this reading.
+    pub fn record_success(
+        &mut self,
+        usage: Usage,
+        now: SystemTime,
+        live: &BTreeSet<String>,
+        listed: Option<&BTreeSet<String>>,
+    ) {
         self.snapshot = Some(UsageSnapshot::new(usage, now));
         self.managed_at_reading = Some(live.len());
         self.ownership_verified = true;
         self.history.push(now, usage.balance_cu);
         self.attribution
-            .observe_at(now, usage.rate_cu_per_hour, usage.assignments, live);
+            .observe_at(now, usage.rate_cu_per_hour, usage.assignments, live, listed);
         self.last_attempt = Some(now);
         self.last_error = None;
     }
@@ -629,7 +653,7 @@ mod tests {
         let mut a = AccountUsage::default();
         a.record_failure(Error::new(crate::ErrorKind::Http), t(0));
         assert!(a.snapshot.is_none(), "unknown stays unknown, not zero");
-        a.record_success(u(50.0, 5.0, 1), t(30), &set(&["s1"]));
+        a.record_success(u(50.0, 5.0, 1), t(30), &set(&["s1"]), None);
         a.record_failure(Error::new(crate::ErrorKind::Http), t(60));
         let s = a.snapshot.unwrap();
         assert!(s.stale);
@@ -693,13 +717,24 @@ mod tests {
     struct Readings {
         attribution: RateAttribution,
         now: u64,
+        listed: Option<BTreeSet<String>>,
     }
 
     impl Readings {
         fn read(&mut self, after: u64, rate: f64, assignments: u32, live: &[&str]) {
             self.now += after;
-            self.attribution
-                .observe_at(t(self.now), rate, assignments, &set(live));
+            self.attribution.observe_at(
+                t(self.now),
+                rate,
+                assignments,
+                &set(live),
+                self.listed.as_ref(),
+            );
+        }
+
+        /// The readings that follow come with this listing of endpoints.
+        fn list(&mut self, endpoints: &[&str]) {
+            self.listed = Some(set(endpoints));
         }
 
         /// A reading, and the same one every 30 s until it is settled.
@@ -830,6 +865,81 @@ mod tests {
         r.hold(30, 23.17, 4, &["a100", "l4a", "l4b"]);
         r.hold(300, 11.40, 3, &["l4a", "l4b"]);
         assert_eq!(r.rate("l4b"), Some(9.175));
+    }
+
+    #[test]
+    fn an_unmanaged_runtime_that_takes_the_place_of_another_is_seen_by_its_endpoint() {
+        // Two L4s start beside an unmanaged CPU.
+        let mut r = Readings::default();
+        r.list(&["cpu"]);
+        r.hold(0, 0.08, 1, &[]);
+        r.list(&["cpu", "l4a", "l4b"]);
+        r.hold(60, 9.72, 3, &["l4a", "l4b"]);
+        // One stops, and a T4 takes the place of the CPU between two
+        // readings: the fall is 3.14.
+        r.list(&["l4b", "t4"]);
+        r.hold(300, 6.58, 2, &["l4b"]);
+        assert_eq!(r.rate("l4b"), Some(4.82));
+    }
+
+    #[test]
+    fn the_endpoint_of_a_session_that_stops_is_no_unmanaged_runtime_that_went() {
+        // An A100 and a T4 start beside an unmanaged CPU.
+        let mut r = Readings::default();
+        r.list(&["cpu"]);
+        r.hold(0, 0.08, 1, &[]);
+        r.list(&["a100", "cpu", "t4"]);
+        r.hold(60, 13.61, 3, &["a100", "t4"]);
+        r.list(&["cpu", "t4"]);
+        r.hold(300, 1.84, 2, &["t4"]);
+        assert_eq!(r.rate("t4"), Some(1.76));
+    }
+
+    #[test]
+    fn fewer_unmanaged_runtimes_than_the_listing_shows_gone_is_a_change_too() {
+        let mut r = Readings::default();
+        r.list(&["cpu"]);
+        r.hold(0, 0.08, 1, &[]);
+        r.list(&["a100", "cpu", "t4"]);
+        r.hold(60, 13.61, 3, &["a100", "t4"]);
+        // The A100 stops, and the CPU goes between the listing and the
+        // reading of the usage.
+        r.list(&["cpu", "t4"]);
+        r.hold(300, 1.76, 1, &["t4"]);
+        assert_eq!(r.rate("t4"), Some(6.765));
+    }
+
+    #[test]
+    fn a_listing_is_compared_with_that_of_the_reading_before_only() {
+        let mut r = Readings::default();
+        r.list(&["cpu"]);
+        r.hold(0, 0.08, 1, &[]);
+        // The CPU goes in a reading that comes without a listing.
+        r.listed = None;
+        r.read(60, 0.0, 0, &[]);
+        r.list(&["a100", "t4"]);
+        r.hold(60, 13.53, 2, &["a100", "t4"]);
+        r.list(&["t4"]);
+        r.hold(300, 1.76, 1, &["t4"]);
+        assert_eq!(r.rate("t4"), Some(1.76));
+    }
+
+    #[test]
+    fn an_unmanaged_runtime_that_takes_the_place_of_another_moves_the_rate_twice() {
+        // An A100 and a T4 start beside an unmanaged CPU.
+        let mut r = Readings::default();
+        r.list(&["cpu"]);
+        r.hold(0, 0.08, 1, &[]);
+        r.list(&["a100", "cpu", "t4"]);
+        r.hold(60, 13.61, 3, &["a100", "t4"]);
+        // A second T4 takes the place of the CPU: the rate falls for the
+        // one, and rises for the other a reading later.
+        r.list(&["a100", "t4", "t4b"]);
+        r.read(300, 13.53, 3, &["a100", "t4"]);
+        r.hold(30, 15.29, 3, &["a100", "t4"]);
+        r.list(&["t4", "t4b"]);
+        r.hold(300, 3.52, 2, &["t4"]);
+        assert_eq!(r.rate("t4"), Some(1.76));
     }
 
     #[test]
@@ -1102,19 +1212,19 @@ mod tests {
     fn a_usage_record_written_and_read_back_keeps_what_was_held_and_split() {
         let live = set(&["a100", "t4"]);
         let mut a = AccountUsage::default();
-        a.record_success(u(90.0, 0.0, 0), t(0), &set(&[]));
+        a.record_success(u(90.0, 0.0, 0), t(0), &set(&[]), None);
         for at in [60, 90, 120, 150] {
-            a.record_success(u(90.0, 13.53, 2), t(at), &live);
+            a.record_success(u(90.0, 13.53, 2), t(at), &live, None);
         }
         let mut a: AccountUsage =
             serde_json::from_value(serde_json::to_value(&a).unwrap()).unwrap();
-        a.record_success(u(90.0, 13.53, 2), t(180), &live);
+        a.record_success(u(90.0, 13.53, 2), t(180), &live, None);
         for at in [600, 630, 660, 690] {
-            a.record_success(u(89.0, 1.76, 1), t(at), &set(&["t4"]));
+            a.record_success(u(89.0, 1.76, 1), t(at), &set(&["t4"]), None);
         }
         let mut a: AccountUsage =
             serde_json::from_value(serde_json::to_value(&a).unwrap()).unwrap();
-        a.record_success(u(89.0, 1.76, 1), t(720), &set(&["t4"]));
+        a.record_success(u(89.0, 1.76, 1), t(720), &set(&["t4"]), None);
         assert!((a.attribution.rate_of("t4").unwrap() - 1.76).abs() < 1e-9);
     }
 
@@ -1127,10 +1237,10 @@ mod tests {
             "rates": {"a100": 9.15, "h100": 9.15},
         }))
         .unwrap();
-        a.observe_at(t(0), 30.07, 2, &set(&["a100", "h100"]));
-        a.observe_at(t(30), 18.30, 1, &set(&["h100"]));
+        a.observe_at(t(0), 30.07, 2, &set(&["a100", "h100"]), None);
+        a.observe_at(t(30), 18.30, 1, &set(&["h100"]), None);
         for at in [60, 90, 120, 150] {
-            a.observe_at(t(at), 18.30, 1, &set(&["h100"]));
+            a.observe_at(t(at), 18.30, 1, &set(&["h100"]), None);
         }
         assert_eq!(a.rate_of("h100"), Some(9.15));
     }
@@ -1206,7 +1316,7 @@ mod tests {
     #[test]
     fn unmanaged_and_totals() {
         let mut a = AccountUsage::default();
-        a.record_success(u(80.0, 13.6, 3), t(0), &set(&["s1", "s2"]));
+        a.record_success(u(80.0, 13.6, 3), t(0), &set(&["s1", "s2"]), None);
         assert_eq!(a.unmanaged_runtimes(2), 1);
         let s1 = UsageSnapshot::new(u(10.0, 1.0, 1), t(0));
         let mut s2 = UsageSnapshot::new(u(5.0, 2.0, 1), t(0));
@@ -1222,7 +1332,7 @@ mod tests {
     fn unmanaged_count_stays_with_the_reading() {
         let mut a = AccountUsage::default();
         assert_eq!(a.unmanaged_runtimes(0), 0);
-        a.record_success(u(80.0, 13.6, 3), t(0), &set(&["s1", "s2"]));
+        a.record_success(u(80.0, 13.6, 3), t(0), &set(&["s1", "s2"]), None);
         assert_eq!(
             a.unmanaged_runtimes(1),
             1,
@@ -1235,20 +1345,20 @@ mod tests {
         );
         a.record_failure(Error::new(crate::ErrorKind::Http), t(30));
         assert_eq!(a.unmanaged_runtimes(3), 1);
-        a.record_success(u(79.0, 13.6, 5), t(60), &set(&["s1", "s2", "s3"]));
+        a.record_success(u(79.0, 13.6, 5), t(60), &set(&["s1", "s2", "s3"]), None);
         assert_eq!(
             a.unmanaged_runtimes(0),
             2,
             "a successful reading updates the count"
         );
-        a.record_success(u(78.0, 13.6, 1), t(90), &set(&["s1", "s2"]));
+        a.record_success(u(78.0, 13.6, 1), t(90), &set(&["s1", "s2"]), None);
         assert_eq!(a.unmanaged_runtimes(0), 0, "subtraction saturates");
     }
 
     #[test]
     fn older_usage_caches_fall_back_to_known_sessions() {
         let mut a = AccountUsage::default();
-        a.record_success(u(80.0, 13.6, 3), t(0), &set(&["s1", "s2"]));
+        a.record_success(u(80.0, 13.6, 3), t(0), &set(&["s1", "s2"]), None);
         let mut value = serde_json::to_value(&a).unwrap();
         value.as_object_mut().unwrap().remove("managed_at_reading");
         value.as_object_mut().unwrap().remove("ownership_verified");

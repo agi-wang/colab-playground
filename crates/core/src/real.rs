@@ -475,6 +475,9 @@ umask 077
 mkdir -p -- "$(dirname -- "$1")" && cp -- "$src" "$1""#;
 const SLOT_TIMEOUT: Duration = Duration::from_secs(5);
 
+/// The endpoints of the runtimes of each account whose listing succeeded.
+type Listed = BTreeMap<AccountId, BTreeSet<String>>;
+
 impl RealBackend {
     /// Loads app-side files and removes what an earlier run left in the plugin staging
     /// directory; spawns nothing.
@@ -825,15 +828,20 @@ impl Inner {
         &self,
         ids: &[AccountId],
         cancel: &CancelToken,
-    ) -> (BTreeSet<AccountId>, Vec<RuntimeRef>) {
+    ) -> (BTreeSet<AccountId>, Vec<RuntimeRef>, Listed) {
         let mut verified = BTreeSet::new();
         let mut vanished = Vec::new();
+        let mut endpoints = Listed::new();
         let sample = self.reconciliation_sample();
         if let Ok(helper) = self.helper()
             && let Ok(listed) = helper.assignments(ids, cancel)
         {
             for (account, result) in listed {
                 if let Ok(list) = result {
+                    endpoints.insert(
+                        account.clone(),
+                        list.iter().map(|a| a.endpoint.clone()).collect(),
+                    );
                     let names = self.state_names(&account, cancel);
                     vanished.extend(self.reconcile(&account, &list, names.as_ref(), &sample));
                     if !self
@@ -847,7 +855,7 @@ impl Inner {
                 }
             }
         }
-        (verified, vanished)
+        (verified, vanished, endpoints)
     }
 
     fn stop(&self, target: &RuntimeRef, opts: &StopOptions, cancel: &CancelToken) -> Result<()> {
@@ -919,6 +927,7 @@ impl Inner {
         &self,
         results: Vec<(AccountId, Result<crate::usage::Usage>)>,
         verified: &BTreeSet<AccountId>,
+        listed: &Listed,
     ) {
         let now = self.now();
         for (id, res) in results {
@@ -927,7 +936,7 @@ impl Inner {
             let entry = st.usage.entry(id.clone()).or_default();
             match res {
                 Ok(u) => {
-                    entry.record_success(u, now, &live);
+                    entry.record_success(u, now, &live, listed.get(&id));
                     entry.ownership_verified = live.is_empty() || verified.contains(&id);
                     let snap = entry.snapshot;
                     if let Some(s) = snap {
@@ -1492,12 +1501,13 @@ impl Backend for RealBackend {
         if ids.is_empty() {
             return Ok(Vec::new());
         }
-        let (verified, _) = self.inner.reconcile_accounts(&ids, cancel);
+        let (verified, _, listed) = self.inner.reconcile_accounts(&ids, cancel);
         match self.inner.helper()?.usage_many(&ids, cancel) {
-            Ok(results) => self.inner.record_usage(results, &verified),
+            Ok(results) => self.inner.record_usage(results, &verified, &listed),
             Err(e) => self.inner.record_usage(
                 ids.iter().map(|i| (i.clone(), Err(e.clone()))).collect(),
                 &verified,
+                &listed,
             ),
         }
         let _ = self.inner.st().ledger.save_changes();
@@ -1722,7 +1732,7 @@ impl Backend for RealBackend {
             return Ok(report);
         }
         let helper = self.inner.helper()?;
-        let (verified, vanished) = self.inner.reconcile_accounts(&ids, cancel);
+        let (verified, vanished, listed) = self.inner.reconcile_accounts(&ids, cancel);
         report.vanished = vanished;
         let live: Vec<TrackedSession> = self
             .inner
@@ -1739,13 +1749,14 @@ impl Backend for RealBackend {
                     .filter(|(_, r)| r.is_ok())
                     .map(|(i, _)| i.clone())
                     .collect();
-                self.inner.record_usage(results, &verified);
+                self.inner.record_usage(results, &verified, &listed);
                 ok
             }
             Err(e) => {
                 self.inner.record_usage(
                     ids.iter().map(|i| (i.clone(), Err(e.clone()))).collect(),
                     &verified,
+                    &listed,
                 );
                 BTreeSet::new()
             }

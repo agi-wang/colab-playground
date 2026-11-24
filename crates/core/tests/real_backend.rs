@@ -36,6 +36,7 @@ struct Fixture {
     root: PathBuf,
     state: PathBuf,
     cfg: RealConfig,
+    clock: ManualClock,
     b: RealBackend,
 }
 
@@ -92,6 +93,7 @@ fn fixture() -> Fixture {
     });
     std::fs::write(state.join("server.json"), server.to_string()).unwrap();
     let s = |p: &Path| p.to_string_lossy().into_owned();
+    let clock = ManualClock::fixed();
     let cfg = RealConfig {
         host: Host::Local,
         toolchain: Some(Toolchain {
@@ -106,7 +108,7 @@ fn fixture() -> Fixture {
             ("CPG_SSH".into(), s(&bin.join("ssh"))),
             ("PYTHONDONTWRITEBYTECODE".into(), "1".into()),
         ],
-        clock: Arc::new(ManualClock::fixed()),
+        clock: Arc::new(clock.clone()),
         http: Arc::new(NoHttp),
         defaults: Defaults::default(),
         run_poll_interval: Duration::from_secs(1),
@@ -117,6 +119,7 @@ fn fixture() -> Fixture {
         root,
         state,
         cfg,
+        clock,
         b,
     }
 }
@@ -1290,6 +1293,54 @@ fn ownership_is_unverified_when_listing_fails_and_recovers_on_a_new_reading() {
         "listing does not rewrite a reading"
     );
     assert!(f.b.refresh_usage(&[], &nc()).unwrap()[0].ownership_verified);
+}
+
+#[test]
+fn an_unmanaged_runtime_replaced_between_two_usage_readings_is_a_change() {
+    // An A100 and a T4 start beside a runtime that the browser started, and the A100 stops.
+    // `swap`: another runtime takes the place of the browser's in the same two minutes.
+    for (swap, expected) in [(false, 1.76), (true, (11.77 + 1.76) / 2.0)] {
+        let f = fixture();
+        f.adopt_alice();
+        // The same usage reading for long enough to count as settled.
+        let hold = || {
+            for _ in 0..5 {
+                f.b.refresh_usage(&[], &nc()).unwrap();
+                f.clock.advance(Duration::from_secs(30));
+            }
+        };
+        f.edit_server(|s| {
+            s["accounts"]["alice"]["assignments"]["m-browser"] = json!({"accelerator": "NONE"})
+        });
+        hold();
+        f.provision("a100", Accelerator::A100);
+        f.provision("t4", Accelerator::T4);
+        hold();
+        let runtimes = f.b.runtimes(&nc()).unwrap().runtimes;
+        let a100 = runtimes
+            .iter()
+            .find(|r| r.id.name.as_deref() == Some("a100"))
+            .unwrap();
+        f.b.stop_session(&a100.id, StopOptions::default(), &nc())
+            .unwrap();
+        if swap {
+            f.edit_server(|s| {
+                let list = s["accounts"]["alice"]["assignments"]
+                    .as_object_mut()
+                    .unwrap();
+                list.remove("m-browser");
+                list.insert("m-other".into(), json!({"accelerator": "L4"}));
+            });
+        }
+        hold();
+        let runtimes = f.b.runtimes(&nc()).unwrap().runtimes;
+        let t4 = runtimes
+            .iter()
+            .find(|r| r.id.name.as_deref() == Some("t4"))
+            .unwrap();
+        let rate = t4.estimated_rate_cu_per_hour.unwrap();
+        assert!((rate - expected).abs() < 1e-9, "{rate} (swap: {swap})");
+    }
 }
 
 #[test]
