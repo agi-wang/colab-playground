@@ -1099,7 +1099,7 @@ mod tests {
     }
 
     #[test]
-    fn what_was_held_and_split_survives_a_restart_of_the_app() {
+    fn a_usage_record_written_and_read_back_keeps_what_was_held_and_split() {
         let live = set(&["a100", "t4"]);
         let mut a = AccountUsage::default();
         a.record_success(u(90.0, 0.0, 0), t(0), &set(&[]));
