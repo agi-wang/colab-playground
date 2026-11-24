@@ -414,7 +414,7 @@ impl RateAttribution {
             .into_iter()
             .partition(|split| !split.sessions.is_disjoint(&stopped));
         self.splits = kept;
-        if rise.abs() <= NO_RATE && (other || started.is_empty() != stopped.is_empty()) {
+        if moves == 0 && (other || started.is_empty() != stopped.is_empty()) {
             // The rate has yet to follow what came or went, so its next
             // move is not all of what comes or goes then.
             self.changes = Changes {
@@ -940,6 +940,18 @@ mod tests {
         r.hold(300, 13.53, 3, &["a100", "l4", "t4"]);
         r.hold(30, 18.35, 3, &["a100", "l4", "t4"]);
         r.hold(300, 6.58, 2, &["l4", "t4"]);
+        assert_eq!(r.rate("t4"), Some(1.76));
+    }
+
+    #[test]
+    fn a_runtime_that_came_and_went_leaves_nothing_on_its_way() {
+        let mut r = Readings::default();
+        r.read(0, 0.0, 0, &[]);
+        // An unmanaged T4 comes and goes, and the account burns nothing again.
+        r.read(60, 1.76, 1, &[]);
+        r.read(60, 0.0, 0, &[]);
+        r.hold(60, 13.53, 2, &["a100", "t4"]);
+        r.hold(300, 1.76, 1, &["t4"]);
         assert_eq!(r.rate("t4"), Some(1.76));
     }
 
