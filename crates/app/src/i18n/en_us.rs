@@ -293,7 +293,7 @@ pub(super) const MESSAGES: Messages = &[
     (SWITCHER_MANAGE, "Manage accounts"),
     // Dialogs
     (SYNC_TITLE, "Sync with W-ID"),
-    (SYNC_ACTION, "Sync accounts"),
+    (SYNC_ACTION, "W-ID sign in and sync"),
     (
         SYNC_INTRO,
         "Sign in to W-ID to share saved Google accounts across your devices. The sync server can unlock the vault with your PIN.",

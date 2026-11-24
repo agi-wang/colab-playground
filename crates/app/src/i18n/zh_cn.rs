@@ -254,7 +254,7 @@ pub(super) const MESSAGES: Messages = &[
     (SWITCHER_MANAGE, "管理账号"),
     // 对话框
     (SYNC_TITLE, "使用 W-ID 同步"),
-    (SYNC_ACTION, "同步账号"),
+    (SYNC_ACTION, "W-ID 登录与同步"),
     (
         SYNC_INTRO,
         "登录 W-ID，在设备间同步已保存的 Google 账号。同步服务可使用你的 PIN 解锁凭据库。",

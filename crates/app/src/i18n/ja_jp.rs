@@ -320,7 +320,7 @@ pub(super) const MESSAGES: Messages = &[
     (SWITCHER_MANAGE, "アカウントを管理"),
     // Dialogs
     (SYNC_TITLE, "W-ID で同期"),
-    (SYNC_ACTION, "アカウントを同期"),
+    (SYNC_ACTION, "W-IDでログイン・同期"),
     (
         SYNC_INTRO,
         "W-ID にログインして保存済みの Google アカウントを端末間で共有します。同期サーバーは PIN で保管庫を解除できます。",
