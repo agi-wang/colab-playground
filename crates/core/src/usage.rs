@@ -364,10 +364,11 @@ impl RateAttribution {
         }
         // Unmanaged runtimes that went: the endpoints that are no longer
         // listed, beyond those of the sessions that stopped. As many may
-        // have come, which their number alone does not show.
+        // have come, which their number alone does not show. Without both
+        // listings any of them may have gone and another come in its place.
         let went = match (&self.listed, listed) {
             (Some(was), Some(now)) => was.difference(now).count().saturating_sub(sessions),
-            _ => 0,
+            _ => before.min(unmanaged),
         };
         self.listed = listed.cloned();
         let came = (unmanaged + went).saturating_sub(before);
@@ -857,9 +858,12 @@ mod tests {
     fn a_stop_is_measured_once_an_unmanaged_runtime_has_shown() {
         let mut r = Readings::default();
         r.read(0, 0.0, 0, &[]);
+        r.list(&["a100", "l4"]);
         r.hold(60, 16.59, 2, &["a100", "l4"]);
+        r.list(&["a100", "l4", "other"]);
         r.read(300, 16.59, 3, &["a100", "l4"]);
         r.hold(30, 21.41, 3, &["a100", "l4"]);
+        r.list(&["l4", "other"]);
         r.hold(300, 9.64, 2, &["l4"]);
         assert_eq!(r.rate("l4"), Some(4.82));
     }
@@ -892,6 +896,23 @@ mod tests {
         // readings: the fall is 3.14.
         r.list(&["l4b", "t4"]);
         r.hold(300, 6.58, 2, &["l4b"]);
+        assert_eq!(r.rate("l4b"), Some(4.82));
+    }
+
+    #[test]
+    fn without_a_listing_an_unmanaged_runtime_may_have_taken_the_place_of_another() {
+        // Two L4s start beside an unmanaged CPU.
+        let mut r = Readings::default();
+        r.list(&["cpu"]);
+        r.hold(0, 0.08, 1, &[]);
+        r.list(&["cpu", "l4a", "l4b"]);
+        r.hold(60, 9.72, 3, &["l4a", "l4b"]);
+        // One stops, and a T4 takes the place of the CPU, in a reading
+        // that comes without a listing.
+        r.listed = None;
+        r.read(300, 6.58, 2, &["l4b"]);
+        r.list(&["l4b", "t4"]);
+        r.hold(30, 6.58, 2, &["l4b"]);
         assert_eq!(r.rate("l4b"), Some(4.82));
     }
 

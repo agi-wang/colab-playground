@@ -2422,12 +2422,11 @@ mod tests {
     }
 
     #[test]
-    fn a_round_whose_listing_failed_compares_the_number_of_runtimes_only() {
-        // An A100 and a T4 start beside a runtime that the browser started. The A100 stops
-        // and another runtime takes the place of the browser's before the next reading.
-        // `fails`: the listing of that reading fails, so the two cannot be told apart.
-        let swapped = 11.77 + 1.76 - (11.77 + 0.08 - 4.82);
-        for (fails, expected) in [(false, (11.77 + 1.76) / 2.0), (true, swapped)] {
+    fn a_round_whose_listing_failed_cannot_tell_the_unmanaged_runtimes_apart() {
+        // An A100 and a T4 start beside a runtime that the browser started, and the A100
+        // stops. `fails`: the listing of the next reading fails, so another runtime may
+        // have taken the place of the browser's.
+        for (fails, expected) in [(false, 1.76), (true, (11.77 + 1.76) / 2.0)] {
             let (m, clock) = mock(MockScenario::single());
             let account = m.w().active.clone().unwrap();
             let hold = || {
@@ -2454,7 +2453,7 @@ mod tests {
                 m.stop_session(&target, StopOptions::default(), &nc())
                     .unwrap();
             };
-            let browser = m.add_unmanaged_runtime(&account, Accelerator::None);
+            m.add_unmanaged_runtime(&account, Accelerator::None);
             hold();
             let a100 = start(Accelerator::A100);
             let t4 = start(Accelerator::T4);
@@ -2465,8 +2464,6 @@ mod tests {
                 r.unwrap().endpoint.clone()
             };
             stop(endpoint, Some(a100));
-            stop(browser, None);
-            m.add_unmanaged_runtime(&account, Accelerator::L4);
             m.set_failures(MockFailures {
                 runtimes_listing_fails: fails,
                 ..Default::default()

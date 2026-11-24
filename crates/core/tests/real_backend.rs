@@ -1346,6 +1346,49 @@ fn an_unmanaged_runtime_replaced_between_two_usage_readings_is_a_change() {
 }
 
 #[test]
+fn a_usage_reading_whose_listing_failed_measures_nothing_beside_an_unmanaged_runtime() {
+    // An A100 and a T4 start beside a runtime that the browser started, and the A100 stops.
+    // `fails`: the listing of the next reading fails, so another runtime may have taken
+    // the place of the browser's.
+    for (fails, expected) in [(false, 1.76), (true, (11.77 + 1.76) / 2.0)] {
+        let f = fixture();
+        f.adopt_alice();
+        let hold = || {
+            for _ in 0..5 {
+                f.b.refresh_usage(&[], &nc()).unwrap();
+                f.clock.advance(Duration::from_secs(30));
+            }
+        };
+        f.edit_server(|s| {
+            s["accounts"]["alice"]["assignments"]["m-browser"] = json!({"accelerator": "NONE"})
+        });
+        hold();
+        f.provision("a100", Accelerator::A100);
+        f.provision("t4", Accelerator::T4);
+        hold();
+        let runtimes = f.b.runtimes(&nc()).unwrap().runtimes;
+        let a100 = runtimes
+            .iter()
+            .find(|r| r.id.name.as_deref() == Some("a100"))
+            .unwrap();
+        f.b.stop_session(&a100.id, StopOptions::default(), &nc())
+            .unwrap();
+        f.knob("cli_api_broken", json!(fails));
+        f.b.refresh_usage(&[], &nc()).unwrap();
+        f.knob("cli_api_broken", json!(false));
+        f.clock.advance(Duration::from_secs(30));
+        hold();
+        let runtimes = f.b.runtimes(&nc()).unwrap().runtimes;
+        let t4 = runtimes
+            .iter()
+            .find(|r| r.id.name.as_deref() == Some("t4"))
+            .unwrap();
+        let rate = t4.estimated_rate_cu_per_hour.unwrap();
+        assert!((rate - expected).abs() < 1e-9, "{rate} (fails: {fails})");
+    }
+}
+
+#[test]
 fn a_step_of_the_system_time_settles_no_usage_reading() {
     // An A100 and a T4 start, are read once, and the A100 stops ten minutes later.
     // `step`: they were no ten minutes, the system time was set ahead.
