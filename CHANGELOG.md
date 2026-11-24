@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.1](https://github.com/agi-wang/colab-playground/compare/v0.5.0...v0.5.1) (2026-11-24)
+
+
+### Fixed
+
+* **app:** show W-ID in account sync entry ([c618501](https://github.com/agi-wang/colab-playground/commit/c6185014ce08596a786a4ae9430e3195f9a0c53a))
+
 ## [0.5.0](https://github.com/agi-wang/colab-playground/compare/v0.4.0...v0.5.0) (2026-11-24)
 
 
