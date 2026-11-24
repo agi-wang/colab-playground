@@ -7,7 +7,7 @@ What the app does is in the [README](../README.md); the principles and rules beh
 ## Install a release
 
 Download the file for your computer from the
-[latest release](https://github.com/scarletkc/colab-playground/releases/latest); there is no
+[latest release](https://github.com/agi-wang/colab-playground/releases/latest); there is no
 installer. Later versions install from inside the app (see [Updates](#updates)); settings and data
 stay where they are (see [Where things are stored](#where-things-are-stored)).
 

@@ -69,7 +69,7 @@ does, and what Package checks before anything is attached:
   oldest one left and update the requirement there.
 - **macOS: a `.zip` holding the `.app`.** An `.app` is a folder and a release asset must be a single
   file. The workflow assembles the bundle: an `Info.plist` it writes (identifier
-  `io.github.scarletkc.colab-playground`, version from Cargo, copyright line from `LICENSE`), the
+  `wang.aiot.colab-playground`, version from Cargo, copyright line from `LICENSE`), the
   binary, and [`assets/icon/icon.icns`](../assets/icon/icon.icns). It is ad-hoc signed (Apple
   silicon runs only signed code) but has no Developer ID and is not notarised, so the first launch
   needs the steps in USAGE.md. The zip is made with `ditto`, and the job unzips it again and
@@ -218,7 +218,7 @@ Does not match (release-please's fixed format):
    The same with the CLI:
 
    ```sh
-   gh api -X PUT repos/scarletkc/colab-playground/actions/permissions/workflow \
+   gh api -X PUT repos/agi-wang/colab-playground/actions/permissions/workflow \
      -f default_workflow_permissions=read -F can_approve_pull_request_reviews=true
    ```
 
@@ -243,7 +243,7 @@ Does not match (release-please's fixed format):
    methods; the repository setting is the one that limits them. The same with the CLI:
 
    ```sh
-   gh api -X PATCH repos/scarletkc/colab-playground -F allow_squash_merge=true \
+   gh api -X PATCH repos/agi-wang/colab-playground -F allow_squash_merge=true \
      -F allow_rebase_merge=false -F allow_merge_commit=false -F delete_branch_on_merge=true \
      -f squash_merge_commit_title=PR_TITLE -f squash_merge_commit_message=COMMIT_MESSAGES
    ```
@@ -255,7 +255,7 @@ Does not match (release-please's fixed format):
 
    ```sh
    (umask 077 && openssl genpkey -algorithm ed25519 -out update-signing-key.pem)
-   gh secret set UPDATE_SIGNING_KEY --repo scarletkc/colab-playground < update-signing-key.pem
+   gh secret set UPDATE_SIGNING_KEY --repo agi-wang/colab-playground < update-signing-key.pem
    openssl pkey -in update-signing-key.pem -pubout -outform DER | tail -c 32 | base64
    rm update-signing-key.pem
    ```
