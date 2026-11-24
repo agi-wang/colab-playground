@@ -262,7 +262,7 @@ pub(super) const MESSAGES: Messages = &[
     (SWITCHER_MANAGE, "管理帳號"),
     // 對話方塊
     (SYNC_TITLE, "使用 W-ID 同步"),
-    (SYNC_ACTION, "同步帳號"),
+    (SYNC_ACTION, "W-ID 登入與同步"),
     (
         SYNC_INTRO,
         "登入 W-ID，在裝置間同步已儲存的 Google 帳號。同步服務可使用你的 PIN 解鎖憑證庫。",

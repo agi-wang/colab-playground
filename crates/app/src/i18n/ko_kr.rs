@@ -287,7 +287,7 @@ pub(super) const MESSAGES: Messages = &[
     (SWITCHER_MANAGE, "계정 관리"),
     // Dialogs
     (SYNC_TITLE, "W-ID로 동기화"),
-    (SYNC_ACTION, "계정 동기화"),
+    (SYNC_ACTION, "W-ID 로그인 및 동기화"),
     (
         SYNC_INTRO,
         "W-ID에 로그인하여 저장된 Google 계정을 기기 간에 공유합니다. 동기화 서버는 PIN으로 보관함을 열 수 있습니다.",
