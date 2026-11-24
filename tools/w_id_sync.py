@@ -50,16 +50,20 @@ def request(url, *, method="GET", data=None, token=None, etag=None):
         return error.code, error.headers.get("ETag"), error.read(512)
 
 
-def oauth_login():
+def oauth_begin():
     status, _, body = request(ISSUER + "/oauth/device_authorization", method="POST", data={
         "client_id": CLIENT_ID, "scope": "openid profile email offline_access",
     })
     if status != 200:
         raise RuntimeError("W-ID device authorization failed: HTTP %d" % status)
     flow = json.loads(body)
-    print("Open this W-ID page and approve the device: " + flow["verification_uri_complete"])
-    print("Code: " + flow["user_code"])
-    webbrowser.open(flow["verification_uri_complete"])
+    keyring.set_password(AUTH_SERVICE, "device_flow", json.dumps(flow))
+    return flow
+
+
+def oauth_finish(flow):
+    if isinstance(flow, str):
+        flow = json.loads(flow)
     deadline = time.monotonic() + flow["expires_in"]
     interval = max(5, flow.get("interval", 5))
     while time.monotonic() < deadline:
@@ -71,6 +75,7 @@ def oauth_login():
         reply = json.loads(body)
         if status == 200 and reply.get("access_token"):
             save_auth(reply)
+            keyring.delete_password(AUTH_SERVICE, "device_flow")
             return reply["access_token"]
         if reply.get("error") == "slow_down":
             interval += 5
@@ -79,11 +84,19 @@ def oauth_login():
     raise RuntimeError("W-ID login timed out")
 
 
+def oauth_login():
+    flow = oauth_begin()
+    print("Open this W-ID page and approve the device: " + flow["verification_uri_complete"])
+    print("Code: " + flow["user_code"])
+    webbrowser.open(flow["verification_uri_complete"])
+    return oauth_finish(flow)
+
+
 def save_auth(tokens):
     keyring.set_password(AUTH_SERVICE, "tokens", json.dumps(tokens))
 
 
-def access_token():
+def access_token(allow_login=True):
     saved = keyring.get_password(AUTH_SERVICE, "tokens")
     if saved:
         tokens = json.loads(saved)
@@ -99,6 +112,8 @@ def access_token():
                         updated["refresh_token"] = refresh
                     save_auth(updated)
                     return updated["access_token"]
+    if not allow_login:
+        raise RuntimeError("W-ID login required")
     return oauth_login()
 
 
@@ -225,14 +240,31 @@ def restore(entries):
 
 def main():
     parser = argparse.ArgumentParser(description="Sync Colab Playground accounts through W-ID")
-    parser.add_argument("command", choices=("login", "push", "pull"))
+    parser.add_argument("command", choices=("login", "status", "begin", "finish", "push", "pull"))
+    parser.add_argument("--pin-stdin", action="store_true")
+    parser.add_argument("--no-login", action="store_true")
     args = parser.parse_args()
     if args.command == "login":
         oauth_login()
         print("W-ID login complete")
         return
-    token = access_token()
-    pin = getpass.getpass("Six-digit sync PIN: ")
+    if args.command == "status":
+        access_token(False)
+        print("W-ID login ready")
+        return
+    if args.command == "begin":
+        flow = oauth_begin()
+        print(json.dumps({"url": flow["verification_uri_complete"], "code": flow["user_code"]}))
+        return
+    if args.command == "finish":
+        flow = keyring.get_password(AUTH_SERVICE, "device_flow")
+        if not flow:
+            raise RuntimeError("No W-ID login is pending")
+        oauth_finish(flow)
+        print("W-ID login complete")
+        return
+    token = access_token(not args.no_login)
+    pin = sys.stdin.readline().rstrip("\n") if args.pin_stdin else getpass.getpass("Six-digit sync PIN: ")
     if len(pin) != 6 or not pin.isascii() or not pin.isdecimal():
         raise RuntimeError("PIN must contain exactly six digits")
     key = unlock(token, pin)

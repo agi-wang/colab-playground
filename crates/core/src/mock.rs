@@ -1314,6 +1314,21 @@ impl Backend for MockBackend {
             .ok_or_else(|| Error::new(ErrorKind::AccountNotFound))
     }
 
+    fn begin_sync_login(&self, _: &CancelToken) -> Result<SyncLogin> {
+        Ok(SyncLogin {
+            url: "https://auth.myfastools.com/oauth/device?user_code=DEMO-0000".into(),
+            code: "DEMO-0000".into(),
+        })
+    }
+
+    fn finish_sync_login(&self, _: &CancelToken) -> Result<()> {
+        Ok(())
+    }
+
+    fn sync_accounts(&self, _: &str, _: bool, cancel: &CancelToken) -> Result<AccountsView> {
+        self.accounts(cancel)
+    }
+
     fn begin_add_account(&self, cancel: &CancelToken) -> Result<Box<dyn LoginFlow>> {
         self.ready()?;
         self.step(cancel)?;

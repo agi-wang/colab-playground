@@ -253,6 +253,19 @@ pub(super) const MESSAGES: Messages = &[
     (SWITCHER_ADD, "添加账号…"),
     (SWITCHER_MANAGE, "管理账号"),
     // 对话框
+    (SYNC_TITLE, "使用 W-ID 同步"),
+    (SYNC_ACTION, "同步账号"),
+    (
+        SYNC_INTRO,
+        "登录 W-ID，在设备间同步已保存的 Google 账号。同步服务可使用你的 PIN 解锁凭据库。",
+    ),
+    (SYNC_WAIT, "请在浏览器中授权设备。验证码：{code}"),
+    (SYNC_CHOOSE, "选择要执行的账号同步操作。"),
+    (SYNC_UPLOAD, "上传账号"),
+    (SYNC_RESTORE, "恢复账号"),
+    (SYNC_PIN, "输入六位同步 PIN"),
+    (SYNC_TRANSFERRING, "正在同步账号…"),
+    (SYNC_DONE, "账号同步完成"),
     (ADD_TITLE, "添加 Google 账号"),
     (
         ADD_INTRO,

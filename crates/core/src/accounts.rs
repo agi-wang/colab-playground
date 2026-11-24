@@ -28,6 +28,7 @@ use crate::usage::{Usage, UsageSnapshot};
 
 /// Source of the account helper, embedded at build time.
 pub const ACCOUNT_HELPER_PY: &str = include_str!("../assets/account_helper.py");
+const W_ID_SYNC_PY: &str = include_str!("../../../tools/w_id_sync.py");
 
 /// A short opaque account id: `[a-z0-9][a-z0-9-]{0,31}`.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
@@ -287,17 +288,46 @@ impl Helper {
 
     /// Like [`Helper::request`] with `input` after the source on stdin.
     pub fn request_with_input(&self, op: &str, args: &[String], input: &[u8]) -> ScriptRequest {
-        let mut stdin = format!("{}\n", self.source.len()).into_bytes();
-        stdin.extend_from_slice(self.source.as_bytes());
+        self.script_request(&self.source, op, args, input, Duration::from_secs(120))
+    }
+
+    fn script_request(
+        &self,
+        source: &str,
+        op: &str,
+        args: &[String],
+        input: &[u8],
+        timeout: Duration,
+    ) -> ScriptRequest {
+        let mut stdin = format!("{}\n", source.len()).into_bytes();
+        stdin.extend_from_slice(source.as_bytes());
         stdin.extend_from_slice(input);
         let mut req = ScriptRequest::new(RUN_HELPER)
             .arg(op)
             .args(args.iter().cloned())
             .stdin_bytes(stdin)
-            .timeout(Duration::from_secs(120));
+            .timeout(timeout);
         req.env = self.base_env.clone();
         req.env.push(("CPG_PY".into(), self.python.clone()));
         req
+    }
+
+    /// Runs the W-ID bridge in the same CLI Python environment as the account vault.
+    /// PINs arrive on stdin and stdout is limited to non-secret status or a device URL.
+    pub fn sync_call(
+        &self,
+        op: &str,
+        args: &[String],
+        input: &[u8],
+        cancel: &CancelToken,
+    ) -> Result<String> {
+        let request = self.script_request(W_ID_SYNC_PY, op, args, input, Duration::from_secs(650));
+        let out = self.host.run_quiet(request, cancel)?;
+        if !out.success() {
+            return Err(Error::new(ErrorKind::Other)
+                .detail(format!("W-ID sync failed: {}", tail(&out.stderr, 300))));
+        }
+        Ok(out.stdout)
     }
 
     /// Runs one operation and returns its JSON object (errors mapped to [`Error`]).

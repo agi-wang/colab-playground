@@ -1,15 +1,7 @@
-# W-ID account sync (work in progress)
+# W-ID account sync
 
-The current command-line bridge is `tools/w_id_sync.py` in source and `Colab Playground.app/Contents/Resources/w_id_sync.py` in the macOS release. Run it with the Python interpreter that installed `google-colab-cli`, because that interpreter has the same keyring backend and `cryptography` dependency. Close Colab Playground before `pull` so it reloads `accounts.json` afterward.
+On the Accounts page, select **Sync accounts**. W-ID opens in your browser; approve the displayed device code. Then choose **Upload accounts** on the device that already has Google accounts, or **Restore accounts** on another device. Enter the same six-digit PIN on both devices. The app runs the bridge with the Colab CLI's Python interpreter so it shares the existing OS keyring.
 
-```sh
-COLAB_PLAYGROUND_SYNC_URL=https://auth.myfastools.com/colab-sync \
-  /path/to/colab-cli-python tools/w_id_sync.py push
+Upload sends an AES-GCM encrypted snapshot of the saved Google account credentials. Restore adds accounts that are missing locally without changing the active CLI account; select an account in the app to switch to it. The server stores a random key share and rate-limits PIN guesses. Because it receives the PIN during unlock, the self-hosted server is trusted with the vault; the design does not provide end-to-end secrecy from the server operator.
 
-COLAB_PLAYGROUND_SYNC_URL=https://auth.myfastools.com/colab-sync \
-  /path/to/colab-cli-python tools/w_id_sync.py pull
-```
-
-The first command opens W-ID's device authorization page. After W-ID login, enter the same six-digit PIN on each device. `push` uploads an AES-GCM encrypted snapshot of the saved Google account credentials; `pull` adds accounts that are missing locally without changing the active CLI account. The server stores a random key share and rate-limits PIN guesses. Because it receives the PIN during unlock, the self-hosted server is trusted with the vault; the design does not provide end-to-end secrecy from the server operator.
-
-The production HTTPS route is live. The native desktop interface is not connected yet; the bridge remains a manual command until that work is complete. Do not distribute this as a finished sync release.
+The production HTTPS route is `https://auth.myfastools.com/colab-sync/`.

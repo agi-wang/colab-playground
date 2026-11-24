@@ -292,6 +292,22 @@ pub(super) const MESSAGES: Messages = &[
     (SWITCHER_ADD, "Add account…"),
     (SWITCHER_MANAGE, "Manage accounts"),
     // Dialogs
+    (SYNC_TITLE, "Sync with W-ID"),
+    (SYNC_ACTION, "Sync accounts"),
+    (
+        SYNC_INTRO,
+        "Sign in to W-ID to share saved Google accounts across your devices. The sync server can unlock the vault with your PIN.",
+    ),
+    (
+        SYNC_WAIT,
+        "Approve the device in your browser. Code: {code}",
+    ),
+    (SYNC_CHOOSE, "Choose what to do with saved accounts."),
+    (SYNC_UPLOAD, "Upload accounts"),
+    (SYNC_RESTORE, "Restore accounts"),
+    (SYNC_PIN, "Enter your six-digit sync PIN"),
+    (SYNC_TRANSFERRING, "Syncing accounts…"),
+    (SYNC_DONE, "Account sync completed"),
     (ADD_TITLE, "Add a Google account"),
     (
         ADD_INTRO,

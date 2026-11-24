@@ -319,6 +319,22 @@ pub(super) const MESSAGES: Messages = &[
     (SWITCHER_ADD, "アカウントを追加…"),
     (SWITCHER_MANAGE, "アカウントを管理"),
     // Dialogs
+    (SYNC_TITLE, "W-ID で同期"),
+    (SYNC_ACTION, "アカウントを同期"),
+    (
+        SYNC_INTRO,
+        "W-ID にログインして保存済みの Google アカウントを端末間で共有します。同期サーバーは PIN で保管庫を解除できます。",
+    ),
+    (
+        SYNC_WAIT,
+        "ブラウザーで端末を承認してください。コード: {code}",
+    ),
+    (SYNC_CHOOSE, "保存済みアカウントの操作を選んでください。"),
+    (SYNC_UPLOAD, "アカウントをアップロード"),
+    (SYNC_RESTORE, "アカウントを復元"),
+    (SYNC_PIN, "6 桁の同期 PIN を入力"),
+    (SYNC_TRANSFERRING, "アカウントを同期中…"),
+    (SYNC_DONE, "アカウントの同期が完了しました"),
     (ADD_TITLE, "Google アカウントを追加"),
     (
         ADD_INTRO,

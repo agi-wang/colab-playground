@@ -243,6 +243,12 @@ pub struct PluginRunOutcome {
     pub endpoints: Vec<ResolvedEndpoint>,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SyncLogin {
+    pub url: String,
+    pub code: String,
+}
+
 pub trait Backend: Send + Sync {
     fn kind(&self) -> BackendKind;
     fn defaults(&self) -> Defaults;
@@ -267,6 +273,12 @@ pub trait Backend: Send + Sync {
     /// Saves the credential currently in the CLI slot as an account.
     fn adopt_active_account(&self, cancel: &CancelToken) -> Result<Account>;
     fn begin_add_account(&self, cancel: &CancelToken) -> Result<Box<dyn LoginFlow>>;
+    /// Starts W-ID device login for encrypted account sync.
+    fn begin_sync_login(&self, cancel: &CancelToken) -> Result<SyncLogin>;
+    /// Waits for the W-ID device approval and stores its token in the OS keyring.
+    fn finish_sync_login(&self, cancel: &CancelToken) -> Result<()>;
+    /// Uploads or restores saved accounts. The PIN is passed to the helper on stdin.
+    fn sync_accounts(&self, pin: &str, pull: bool, cancel: &CancelToken) -> Result<AccountsView>;
     /// What switching to `to` affects (no side effects).
     fn switch_impact(&self, to: &AccountId) -> Result<SwitchImpact>;
     /// Makes `to` the active account (closes tunnels first).
