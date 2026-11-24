@@ -1,5 +1,24 @@
 # Changelog
 
+## [0.5.0](https://github.com/agi-wang/colab-playground/compare/v0.4.0...v0.5.0) (2026-11-24)
+
+
+### Added
+
+* **app:** show what the chosen hardware burns per hour when starting a session ([#73](https://github.com/agi-wang/colab-playground/issues/73)) ([3b5bcd3](https://github.com/agi-wang/colab-playground/commit/3b5bcd3028793e5b9d5886823c8c31d804d593c5))
+* **app:** sync saved accounts through W-ID ([8335d33](https://github.com/agi-wang/colab-playground/commit/8335d33a69dcdb8a4b18024309ab2ae9669dec40))
+
+
+### Changed
+
+* **core:** write the session ledger once per usage round ([#76](https://github.com/agi-wang/colab-playground/issues/76)) ([146ce3a](https://github.com/agi-wang/colab-playground/commit/146ce3a301d907044dac3cdc7221ff60c3b3e4ae))
+
+
+### Fixed
+
+* **app:** name a new session after the hardware chosen in the form, not the default ([#74](https://github.com/agi-wang/colab-playground/issues/74)) ([bb17287](https://github.com/agi-wang/colab-playground/commit/bb17287ddc27a621f165b5f42a970002613c50e8))
+* **core:** find a colab installed by uv when bash has no profile for it ([#69](https://github.com/agi-wang/colab-playground/issues/69)) ([ac9a0a1](https://github.com/agi-wang/colab-playground/commit/ac9a0a138c9a2a259a9b6966d62b6c483bab9683))
+
 ## [0.4.0](https://github.com/scarletkc/colab-playground/compare/v0.3.0...v0.4.0) (2026-11-20)
 
 
