@@ -156,6 +156,7 @@ jobs:
           mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources" dist
           cp "target/$BUILD_TARGET/release/colab-playground" "$app/Contents/MacOS/colab-playground"
           cp assets/icon/icon.icns "$app/Contents/Resources/AppIcon.icns"
+          cp tools/w_id_sync.py "$app/Contents/Resources/w_id_sync.py"
           # The copyright line's one home is LICENSE.
           copyright=$(grep -m 1 '^Copyright' LICENSE)
           cat > "$app/Contents/Info.plist" <<PLIST

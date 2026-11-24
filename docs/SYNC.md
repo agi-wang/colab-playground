@@ -1,6 +1,6 @@
 # W-ID account sync (work in progress)
 
-The current command-line bridge is `tools/w_id_sync.py`. Run it with the Python interpreter that installed `google-colab-cli`, because that interpreter has the same keyring backend and `cryptography` dependency. Close Colab Playground before `pull` so it reloads `accounts.json` afterward.
+The current command-line bridge is `tools/w_id_sync.py` in source and `Colab Playground.app/Contents/Resources/w_id_sync.py` in the macOS release. Run it with the Python interpreter that installed `google-colab-cli`, because that interpreter has the same keyring backend and `cryptography` dependency. Close Colab Playground before `pull` so it reloads `accounts.json` afterward.
 
 ```sh
 COLAB_PLAYGROUND_SYNC_URL=https://auth.myfastools.com/colab-sync \
