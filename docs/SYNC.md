@@ -12,4 +12,4 @@ COLAB_PLAYGROUND_SYNC_URL=https://auth.myfastools.com/colab-sync \
 
 The first command opens W-ID's device authorization page. After W-ID login, enter the same six-digit PIN on each device. `push` uploads an AES-GCM encrypted snapshot of the saved Google account credentials; `pull` adds accounts that are missing locally without changing the active CLI account. The server stores a random key share and rate-limits PIN guesses. Because it receives the PIN during unlock, the self-hosted server is trusted with the vault; the design does not provide end-to-end secrecy from the server operator.
 
-The desktop interface and the production HTTPS route are not connected yet. Do not distribute this as a finished sync release.
+The production HTTPS route is live. The native desktop interface is not connected yet; the bridge remains a manual command until that work is complete. Do not distribute this as a finished sync release.
