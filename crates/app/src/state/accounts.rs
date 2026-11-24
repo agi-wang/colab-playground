@@ -9,7 +9,7 @@ use std::time::SystemTime;
 use colab_playground_core::{
     Error, ErrorKind,
     accounts::{Account, AccountId, AccountsView},
-    backend::{AccountUsageView, LoginFlow, SwitchImpact},
+    backend::{AccountUsageView, LoginFlow, SwitchImpact, SyncLogin},
     host::ProbeReport,
 };
 use ely_gpui_component::{feedback::Toast, primitives::Severity};
@@ -39,6 +39,7 @@ pub enum AddPhase {
 #[derive(Clone, Debug)]
 pub enum AccountDialog {
     Add(AddPhase),
+    Sync(SyncPhase),
     Switch {
         to: AccountId,
         email: Option<String>,
@@ -51,6 +52,23 @@ pub enum AccountDialog {
         email: Option<String>,
         error: Option<Error>,
     },
+}
+
+#[derive(Clone, Debug)]
+pub enum SyncPhase {
+    Intro,
+    Starting,
+    Waiting(SyncLogin),
+    Choose,
+    Pin {
+        pull: bool,
+        attempt: usize,
+        error: Option<Error>,
+    },
+    Transferring {
+        attempt: usize,
+    },
+    Failed(Error),
 }
 
 /// Where signing in stands, for the checklist, the switcher and the Accounts page.
@@ -254,6 +272,95 @@ impl AppState {
         }
     }
 
+    pub fn open_sync(&mut self, cx: &mut Context<Self>) {
+        self.overlay = None;
+        self.dialog = Some(AccountDialog::Sync(SyncPhase::Intro));
+        cx.notify();
+    }
+
+    pub fn begin_sync(&mut self, cx: &mut Context<Self>) {
+        self.dialog = Some(AccountDialog::Sync(SyncPhase::Starting));
+        self.run_backend(
+            Op::SyncBegin,
+            cx,
+            |backend, cancel| backend.begin_sync_login(cancel),
+            |state, result, cx| match result {
+                Ok(login) => {
+                    if login.url.is_empty() {
+                        state.dialog = Some(AccountDialog::Sync(SyncPhase::Choose));
+                    } else {
+                        cx.open_url(&login.url);
+                        state.dialog = Some(AccountDialog::Sync(SyncPhase::Waiting(login)));
+                        state.finish_sync(cx);
+                    }
+                }
+                Err(error) => state.dialog = Some(AccountDialog::Sync(SyncPhase::Failed(error))),
+            },
+        );
+    }
+
+    fn finish_sync(&mut self, cx: &mut Context<Self>) {
+        self.run_backend(
+            Op::SyncLogin,
+            cx,
+            |backend, cancel| backend.finish_sync_login(cancel),
+            |state, result, _| {
+                if matches!(
+                    state.dialog,
+                    Some(AccountDialog::Sync(SyncPhase::Waiting(_)))
+                ) {
+                    state.dialog = Some(AccountDialog::Sync(match result {
+                        Ok(()) => SyncPhase::Choose,
+                        Err(error) => SyncPhase::Failed(error),
+                    }));
+                }
+            },
+        );
+    }
+
+    pub fn choose_sync(&mut self, pull: bool, cx: &mut Context<Self>) {
+        self.dialog = Some(AccountDialog::Sync(SyncPhase::Pin {
+            pull,
+            attempt: 0,
+            error: None,
+        }));
+        cx.notify();
+    }
+
+    pub fn back_to_sync_choice(&mut self, cx: &mut Context<Self>) {
+        self.dialog = Some(AccountDialog::Sync(SyncPhase::Choose));
+        cx.notify();
+    }
+
+    pub fn submit_sync_pin(&mut self, pin: String, cx: &mut Context<Self>) {
+        let Some(AccountDialog::Sync(SyncPhase::Pin { pull, attempt, .. })) = &self.dialog else {
+            return;
+        };
+        let pull = *pull;
+        let attempt = *attempt;
+        self.dialog = Some(AccountDialog::Sync(SyncPhase::Transferring { attempt }));
+        self.run_backend(
+            Op::SyncTransfer,
+            cx,
+            move |backend, cancel| backend.sync_accounts(&pin, pull, cancel),
+            move |state, result, cx| match result {
+                Ok(view) => {
+                    state.accounts = Load::Ready(view);
+                    state.dialog = None;
+                    state.toast_done(tr(cx, keys::SYNC_DONE), cx);
+                    state.refresh_usage_after_change(cx);
+                }
+                Err(error) => {
+                    state.dialog = Some(AccountDialog::Sync(SyncPhase::Pin {
+                        pull,
+                        attempt: attempt + 1,
+                        error: Some(error),
+                    }))
+                }
+            },
+        );
+    }
+
     pub fn begin_sign_in(&mut self, cx: &mut Context<Self>) {
         if self.login_flow.is_some() || self.is_busy(Op::Login) {
             return;
@@ -446,6 +553,13 @@ impl AppState {
     pub fn close_dialog(&mut self, cx: &mut Context<Self>) {
         match self.dialog {
             Some(AccountDialog::Add(_)) => self.close_add_account(cx),
+            Some(AccountDialog::Sync(_)) => {
+                self.ops.cancel(Op::SyncBegin);
+                self.ops.cancel(Op::SyncLogin);
+                self.ops.cancel(Op::SyncTransfer);
+                self.dialog = None;
+                cx.notify();
+            }
             Some(_) => {
                 self.dialog = None;
                 cx.notify();

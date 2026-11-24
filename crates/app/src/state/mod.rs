@@ -39,7 +39,8 @@ use ely_gpui_component::{
 use gpui::{App, AppContext, Context, Entity, FontFallbacks, Global, Task};
 
 pub use accounts::{
-    AccountDialog, AccountRow, AddPhase, RemoveBlock, SignInStatus, account_row, sign_in_status,
+    AccountDialog, AccountRow, AddPhase, RemoveBlock, SignInStatus, SyncPhase, account_row,
+    sign_in_status,
 };
 pub use defaults::{MIN_DURATION, sanitize};
 pub use environment::{

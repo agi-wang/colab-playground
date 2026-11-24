@@ -38,6 +38,9 @@ pub enum Op {
     /// Starting or finishing a sign-in.
     Login,
     LoginRollback,
+    SyncBegin,
+    SyncLogin,
+    SyncTransfer,
     SwitchImpact,
     Switch,
     Remove,
@@ -97,6 +100,7 @@ impl Op {
                 | Op::Usage
                 | Op::Login
                 | Op::LoginRollback
+                | Op::SyncTransfer
                 | Op::Switch
                 | Op::Remove
                 | Op::Adopt

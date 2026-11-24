@@ -583,11 +583,12 @@ impl Inner {
     fn helper(&self) -> Result<Helper> {
         let python = self.toolchain()?.helper_python;
         self.keepalive.ensure();
-        Ok(Helper::new(
-            self.cfg.host.clone(),
-            python,
-            self.cfg.base_env.clone(),
-        ))
+        let mut env = self.cfg.base_env.clone();
+        env.push((
+            "COLAB_PLAYGROUND_DATA_DIR".into(),
+            self.cfg.local_dir.to_string_lossy().into_owned(),
+        ));
+        Ok(Helper::new(self.cfg.host.clone(), python, env))
     }
 
     fn known(&self) -> Vec<AccountId> {
@@ -1291,6 +1292,55 @@ impl Backend for RealBackend {
     fn adopt_active_account(&self, cancel: &CancelToken) -> Result<Account> {
         let _g = slot_write(&self.inner.slot, SLOT_TIMEOUT)?;
         self.inner.adopt_locked(cancel)
+    }
+
+    fn begin_sync_login(&self, cancel: &CancelToken) -> Result<SyncLogin> {
+        if self
+            .inner
+            .helper()?
+            .sync_call("status", &[], &[], cancel)
+            .is_ok()
+        {
+            return Ok(SyncLogin {
+                url: String::new(),
+                code: String::new(),
+            });
+        }
+        let output = self.inner.helper()?.sync_call("begin", &[], &[], cancel)?;
+        serde_json::from_str(&output)
+            .map_err(|_| Error::new(ErrorKind::Parse).detail("invalid W-ID device login response"))
+    }
+
+    fn finish_sync_login(&self, cancel: &CancelToken) -> Result<()> {
+        self.inner.helper()?.sync_call("finish", &[], &[], cancel)?;
+        Ok(())
+    }
+
+    fn sync_accounts(&self, pin: &str, pull: bool, cancel: &CancelToken) -> Result<AccountsView> {
+        if pin.len() != 6 || !pin.bytes().all(|digit| digit.is_ascii_digit()) {
+            return Err(Error::invalid("pin", "enter a six-digit PIN"));
+        }
+        let _guard = slot_write(&self.inner.slot, SLOT_TIMEOUT)?;
+        let command = if pull { "pull" } else { "push" };
+        let accounts = self.inner.st().accounts.all().to_vec();
+        let input = serde_json::to_vec(&serde_json::json!({
+            "pin": pin,
+            "accounts": { "version": 1, "accounts": accounts },
+        }))?;
+        let output = self.inner.helper()?.sync_call(
+            command,
+            &["--app-managed".into(), "--no-login".into()],
+            &input,
+            cancel,
+        )?;
+        if pull {
+            let result: serde_json::Value = serde_json::from_str(&output)?;
+            let added: Vec<Account> = serde_json::from_value(result["added"].clone())?;
+            for account in added {
+                self.inner.st().accounts.upsert(account)?;
+            }
+        }
+        self.inner.accounts_view(cancel, false)
     }
 
     fn begin_add_account(&self, cancel: &CancelToken) -> Result<Box<dyn LoginFlow>> {

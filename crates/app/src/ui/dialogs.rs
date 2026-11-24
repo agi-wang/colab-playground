@@ -9,7 +9,7 @@ use colab_playground_core::backend::SwitchImpact;
 use ely_gpui_component::{
     buttons::{Button, ButtonVariant, CopyButton},
     feedback::InlineMessage,
-    forms::Input,
+    forms::{Input, PinInput},
     overlays::Dialog,
     primitives::{IconName, Severity},
     theme::{ActiveTheme, TextSize},
@@ -20,7 +20,7 @@ use gpui::{AnyElement, App, Entity, IntoElement, ParentElement, SharedString, St
 use crate::{
     format,
     i18n::{keys, tr, tr_args},
-    state::{AccountDialog, AddPhase, AppState, Load, Op},
+    state::{AccountDialog, AddPhase, AppState, Load, Op, SyncPhase},
     ui::{
         Inputs, error_view,
         parts::{Layer, busy_line, field},
@@ -30,6 +30,7 @@ use crate::{
 
 pub const SWITCH_NOTHING_SELECTOR: &str = "switch-nothing";
 pub const SWITCH_UNMANAGED_UNKNOWN_SELECTOR: &str = "switch-unmanaged-unknown";
+const SYNC_PIN_DIGITS: usize = 6;
 
 pub fn switch_session_selector(name: &str) -> String {
     format!("switch-session {name}")
@@ -44,6 +45,7 @@ pub fn render(
     let dialog = state.dialog()?;
     Some(match dialog {
         AccountDialog::Add(phase) => add(phase, handle, inputs, cx),
+        AccountDialog::Sync(phase) => sync(phase, handle, cx),
         AccountDialog::Switch {
             email,
             impact,
@@ -54,6 +56,151 @@ pub fn render(
             remove(email.as_deref(), error.as_ref(), state, handle, cx)
         }
     })
+}
+
+fn sync(phase: &SyncPhase, handle: &Entity<AppState>, cx: &App) -> AnyElement {
+    let dialog = Dialog::new(
+        "sync-accounts",
+        tr(cx, keys::SYNC_TITLE),
+        Layer::Dialog.close(handle),
+    );
+    let cancel = tr(cx, keys::ACTION_CANCEL);
+    let sign_in = tr(cx, keys::ACTION_SIGN_IN);
+    let open_again = tr(cx, keys::ADD_OPEN_AGAIN);
+    let upload_label = tr(cx, keys::SYNC_UPLOAD);
+    let restore_label = tr(cx, keys::SYNC_RESTORE);
+    let back_label = tr(cx, keys::ACTION_BACK);
+    let retry_label = tr(cx, keys::ACTION_RETRY);
+    let dialog = match phase {
+        SyncPhase::Intro => {
+            let start = handle.clone();
+            dialog
+                .child(Paragraph::new(tr(cx, keys::SYNC_INTRO)))
+                .action({
+                    let handle = handle.clone();
+                    move |_| Layer::Dialog.cancel_button(cancel, handle)
+                })
+                .action(move |_| {
+                    Button::new("sync-start", sign_in)
+                        .primary()
+                        .on_click(move |_, _, cx| {
+                            start.update(cx, |state, cx| state.begin_sync(cx))
+                        })
+                })
+        }
+        SyncPhase::Starting => dialog
+            .child(busy_line("sync-starting", tr(cx, keys::ADD_STARTING)))
+            .action({
+                let handle = handle.clone();
+                move |_| Layer::Dialog.cancel_button(cancel, handle)
+            }),
+        SyncPhase::Waiting(login) => {
+            let url = login.url.clone();
+            dialog
+                .child(Paragraph::new(tr_args(
+                    cx,
+                    keys::SYNC_WAIT,
+                    &[("code", &login.code)],
+                )))
+                .child(CopyButton::new("sync-copy-link", login.url.clone()))
+                .child(busy_line("sync-waiting", tr(cx, keys::ADD_SUBMITTING)))
+                .action({
+                    let handle = handle.clone();
+                    move |_| Layer::Dialog.cancel_button(cancel, handle)
+                })
+                .action(move |_| {
+                    Button::new("sync-open", open_again).on_click(move |_, _, cx| cx.open_url(&url))
+                })
+        }
+        SyncPhase::Choose => {
+            let upload = handle.clone();
+            let restore = handle.clone();
+            dialog
+                .child(Paragraph::new(tr(cx, keys::SYNC_CHOOSE)))
+                .action({
+                    let handle = handle.clone();
+                    move |_| Layer::Dialog.cancel_button(cancel, handle)
+                })
+                .action(move |_| {
+                    Button::new("sync-upload", upload_label)
+                        .primary()
+                        .on_click(move |_, _, cx| {
+                            upload.update(cx, |state, cx| state.choose_sync(false, cx))
+                        })
+                })
+                .action(move |_| {
+                    Button::new("sync-restore", restore_label).on_click(move |_, _, cx| {
+                        restore.update(cx, |state, cx| state.choose_sync(true, cx))
+                    })
+                })
+        }
+        SyncPhase::Pin {
+            pull,
+            attempt,
+            error,
+        } => {
+            let submit = handle.clone();
+            let pull = *pull;
+            let choose = handle.clone();
+            dialog
+                .child(Paragraph::new(tr(
+                    cx,
+                    if pull {
+                        keys::SYNC_RESTORE
+                    } else {
+                        keys::SYNC_UPLOAD
+                    },
+                )))
+                .child(field(
+                    tr(cx, keys::SYNC_PIN),
+                    PinInput::new("sync-pin", SYNC_PIN_DIGITS)
+                        .label(tr(cx, keys::SYNC_PIN))
+                        .masked()
+                        .attempt(*attempt)
+                        .on_complete(move |pin, _, cx| {
+                            submit.update(cx, |state, cx| state.submit_sync_pin(pin.to_owned(), cx))
+                        }),
+                    cx,
+                ))
+                .children(
+                    error
+                        .as_ref()
+                        .map(|error| error_view::alert("sync", None, error, None, handle, cx)),
+                )
+                .action({
+                    let handle = handle.clone();
+                    move |_| Layer::Dialog.cancel_button(cancel, handle)
+                })
+                .action(move |_| {
+                    Button::new("sync-back", back_label).on_click(move |_, _, cx| {
+                        choose.update(cx, |state, cx| state.back_to_sync_choice(cx))
+                    })
+                })
+        }
+        SyncPhase::Transferring { .. } => dialog
+            .child(busy_line("sync-transfer", tr(cx, keys::SYNC_TRANSFERRING)))
+            .action({
+                let handle = handle.clone();
+                move |_| Layer::Dialog.cancel_button(cancel, handle)
+            }),
+        SyncPhase::Failed(error) => {
+            let retry = handle.clone();
+            dialog
+                .child(error_view::alert("sync", None, error, None, handle, cx))
+                .action({
+                    let handle = handle.clone();
+                    move |_| Layer::Dialog.cancel_button(cancel, handle)
+                })
+                .action(move |_| {
+                    Button::new("sync-retry", retry_label)
+                        .primary()
+                        .on_click(move |_, _, cx| {
+                            retry.update(cx, |state, cx| state.begin_sync(cx))
+                        })
+                })
+        }
+    };
+    dialog.into_any_element()
 }
 
 fn add(phase: &AddPhase, handle: &Entity<AppState>, inputs: &Inputs, cx: &App) -> AnyElement {

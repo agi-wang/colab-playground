@@ -261,6 +261,19 @@ pub(super) const MESSAGES: Messages = &[
     (SWITCHER_ADD, "新增帳號…"),
     (SWITCHER_MANAGE, "管理帳號"),
     // 對話方塊
+    (SYNC_TITLE, "使用 W-ID 同步"),
+    (SYNC_ACTION, "同步帳號"),
+    (
+        SYNC_INTRO,
+        "登入 W-ID，在裝置間同步已儲存的 Google 帳號。同步服務可使用你的 PIN 解鎖憑證庫。",
+    ),
+    (SYNC_WAIT, "請在瀏覽器中授權裝置。驗證碼：{code}"),
+    (SYNC_CHOOSE, "選擇要執行的帳號同步操作。"),
+    (SYNC_UPLOAD, "上傳帳號"),
+    (SYNC_RESTORE, "還原帳號"),
+    (SYNC_PIN, "輸入六位同步 PIN"),
+    (SYNC_TRANSFERRING, "正在同步帳號…"),
+    (SYNC_DONE, "帳號同步完成"),
     (ADD_TITLE, "新增 Google 帳號"),
     (
         ADD_INTRO,
