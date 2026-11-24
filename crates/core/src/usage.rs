@@ -257,10 +257,13 @@ pub struct RateAttribution {
     /// with their listing.
     #[serde(default)]
     listed: Option<BTreeSet<String>>,
-    /// The first of the readings since which the rate and the runtimes have
-    /// stayed as they are.
-    #[serde(default, with = "serde_secs::option")]
-    held_since: Option<SystemTime>,
+    /// When the first of the readings was taken since which the rate and
+    /// the runtimes have stayed as they are, by [`Clock::steady`]. Not
+    /// kept: another run of the app counts from another moment.
+    ///
+    /// [`Clock::steady`]: crate::clock::Clock::steady
+    #[serde(skip)]
+    held_since: Option<Duration>,
     /// The account rate at the last settled reading.
     #[serde(default)]
     settled: Option<f64>,
@@ -345,7 +348,7 @@ impl RateAttribution {
     /// settled readings measures nothing, and no other estimate changes.
     pub fn observe_at(
         &mut self,
-        at: SystemTime,
+        at: Duration,
         account_rate: f64,
         assignments: u32,
         live: &BTreeSet<String>,
@@ -392,12 +395,10 @@ impl RateAttribution {
         if moved || came_or_went > 0 {
             self.held_since = Some(at);
         }
+        let since = *self.held_since.get_or_insert(at);
         self.measured.retain(|name, _| live.contains(name));
         self.observe(account_rate, assignments, live);
-        let held = self
-            .held_since
-            .and_then(|since| at.duration_since(since).ok())
-            .unwrap_or_default();
+        let held = at.saturating_sub(since);
         // An account that runs nothing and burns nothing has nothing on its way.
         let idle = assignments == 0 && live.is_empty() && rate <= NO_RATE;
         if held >= SETTLE || idle {
@@ -506,12 +507,16 @@ pub struct AccountUsage {
 }
 
 impl AccountUsage {
-    /// `listed` are the endpoints of the account's runtimes, if they were
-    /// listed for this reading.
+    /// `steady` is the time of the reading by [`Clock::steady`], which a
+    /// step of the system time does not move. `listed` are the endpoints of
+    /// the account's runtimes, if they were listed for this reading.
+    ///
+    /// [`Clock::steady`]: crate::clock::Clock::steady
     pub fn record_success(
         &mut self,
         usage: Usage,
         now: SystemTime,
+        steady: Duration,
         live: &BTreeSet<String>,
         listed: Option<&BTreeSet<String>>,
     ) {
@@ -519,8 +524,13 @@ impl AccountUsage {
         self.managed_at_reading = Some(live.len());
         self.ownership_verified = true;
         self.history.push(now, usage.balance_cu);
-        self.attribution
-            .observe_at(now, usage.rate_cu_per_hour, usage.assignments, live, listed);
+        self.attribution.observe_at(
+            steady,
+            usage.rate_cu_per_hour,
+            usage.assignments,
+            live,
+            listed,
+        );
         self.last_attempt = Some(now);
         self.last_error = None;
     }
@@ -585,6 +595,9 @@ mod tests {
 
     fn t(s: u64) -> SystemTime {
         SystemTime::UNIX_EPOCH + Duration::from_secs(1_800_000_000 + s)
+    }
+    fn secs(s: u64) -> Duration {
+        Duration::from_secs(s)
     }
     fn set(names: &[&str]) -> BTreeSet<String> {
         names.iter().map(|s| s.to_string()).collect()
@@ -653,7 +666,7 @@ mod tests {
         let mut a = AccountUsage::default();
         a.record_failure(Error::new(crate::ErrorKind::Http), t(0));
         assert!(a.snapshot.is_none(), "unknown stays unknown, not zero");
-        a.record_success(u(50.0, 5.0, 1), t(30), &set(&["s1"]), None);
+        a.record_success(u(50.0, 5.0, 1), t(30), secs(30), &set(&["s1"]), None);
         a.record_failure(Error::new(crate::ErrorKind::Http), t(60));
         let s = a.snapshot.unwrap();
         assert!(s.stale);
@@ -724,7 +737,7 @@ mod tests {
         fn read(&mut self, after: u64, rate: f64, assignments: u32, live: &[&str]) {
             self.now += after;
             self.attribution.observe_at(
-                t(self.now),
+                secs(self.now),
                 rate,
                 assignments,
                 &set(live),
@@ -1209,23 +1222,51 @@ mod tests {
     }
 
     #[test]
-    fn a_usage_record_written_and_read_back_keeps_what_was_held_and_split() {
+    fn a_usage_record_written_and_read_back_keeps_what_was_split_and_holds_anew() {
         let live = set(&["a100", "t4"]);
+        let read_back = |a: &AccountUsage| -> AccountUsage {
+            serde_json::from_value(serde_json::to_value(a).unwrap()).unwrap()
+        };
         let mut a = AccountUsage::default();
-        a.record_success(u(90.0, 0.0, 0), t(0), &set(&[]), None);
+        a.record_success(u(90.0, 0.0, 0), t(0), secs(0), &set(&[]), None);
         for at in [60, 90, 120, 150] {
-            a.record_success(u(90.0, 13.53, 2), t(at), &live, None);
+            a.record_success(u(90.0, 13.53, 2), t(at), secs(at), &live, None);
         }
-        let mut a: AccountUsage =
-            serde_json::from_value(serde_json::to_value(&a).unwrap()).unwrap();
-        a.record_success(u(90.0, 13.53, 2), t(180), &live, None);
-        for at in [600, 630, 660, 690] {
-            a.record_success(u(89.0, 1.76, 1), t(at), &set(&["t4"]), None);
+        // Another run of the app counts its time from another moment.
+        let mut a = read_back(&a);
+        for at in [5, 35, 65, 95, 125] {
+            a.record_success(u(90.0, 13.53, 2), t(at), secs(at), &live, None);
         }
-        let mut a: AccountUsage =
-            serde_json::from_value(serde_json::to_value(&a).unwrap()).unwrap();
-        a.record_success(u(89.0, 1.76, 1), t(720), &set(&["t4"]), None);
+        a.record_success(u(89.0, 1.76, 1), t(600), secs(600), &set(&["t4"]), None);
+        assert!((a.attribution.rate_of("t4").unwrap() - 6.765).abs() < 1e-9);
+        let mut a = read_back(&a);
+        for at in [5, 35, 65, 95] {
+            a.record_success(u(89.0, 1.76, 1), t(at), secs(at), &set(&["t4"]), None);
+        }
+        assert!((a.attribution.rate_of("t4").unwrap() - 6.765).abs() < 1e-9);
+        a.record_success(u(89.0, 1.76, 1), t(125), secs(125), &set(&["t4"]), None);
         assert!((a.attribution.rate_of("t4").unwrap() - 1.76).abs() < 1e-9);
+    }
+
+    #[test]
+    fn a_step_of_the_system_time_is_no_time_for_which_the_rate_held() {
+        // The A100's rate has yet to show when the system time is set ten
+        // minutes ahead, and shows as an L4 starts.
+        let mut a = AccountUsage::default();
+        a.record_success(u(90.0, 0.0, 0), t(0), secs(0), &set(&[]), None);
+        let pair = set(&["a100", "h100"]);
+        a.record_success(u(90.0, 18.30, 2), t(30), secs(30), &pair, None);
+        a.record_success(u(90.0, 18.30, 2), t(660), secs(60), &pair, None);
+        let three = set(&["a100", "h100", "l4"]);
+        a.record_success(u(90.0, 34.89, 3), t(690), secs(90), &three, None);
+        for at in [120, 150, 180, 210] {
+            a.record_success(u(90.0, 34.89, 3), t(600 + at), secs(at), &three, None);
+        }
+        let left = set(&["h100", "l4"]);
+        for at in [240, 270, 300, 330, 360] {
+            a.record_success(u(90.0, 23.12, 2), t(600 + at), secs(at), &left, None);
+        }
+        assert!((a.attribution.rate_of("h100").unwrap() - 9.15).abs() < 1e-9);
     }
 
     #[test]
@@ -1237,10 +1278,10 @@ mod tests {
             "rates": {"a100": 9.15, "h100": 9.15},
         }))
         .unwrap();
-        a.observe_at(t(0), 30.07, 2, &set(&["a100", "h100"]), None);
-        a.observe_at(t(30), 18.30, 1, &set(&["h100"]), None);
+        a.observe_at(secs(0), 30.07, 2, &set(&["a100", "h100"]), None);
+        a.observe_at(secs(30), 18.30, 1, &set(&["h100"]), None);
         for at in [60, 90, 120, 150] {
-            a.observe_at(t(at), 18.30, 1, &set(&["h100"]), None);
+            a.observe_at(secs(at), 18.30, 1, &set(&["h100"]), None);
         }
         assert_eq!(a.rate_of("h100"), Some(9.15));
     }
@@ -1316,7 +1357,7 @@ mod tests {
     #[test]
     fn unmanaged_and_totals() {
         let mut a = AccountUsage::default();
-        a.record_success(u(80.0, 13.6, 3), t(0), &set(&["s1", "s2"]), None);
+        a.record_success(u(80.0, 13.6, 3), t(0), secs(0), &set(&["s1", "s2"]), None);
         assert_eq!(a.unmanaged_runtimes(2), 1);
         let s1 = UsageSnapshot::new(u(10.0, 1.0, 1), t(0));
         let mut s2 = UsageSnapshot::new(u(5.0, 2.0, 1), t(0));
@@ -1332,7 +1373,7 @@ mod tests {
     fn unmanaged_count_stays_with_the_reading() {
         let mut a = AccountUsage::default();
         assert_eq!(a.unmanaged_runtimes(0), 0);
-        a.record_success(u(80.0, 13.6, 3), t(0), &set(&["s1", "s2"]), None);
+        a.record_success(u(80.0, 13.6, 3), t(0), secs(0), &set(&["s1", "s2"]), None);
         assert_eq!(
             a.unmanaged_runtimes(1),
             1,
@@ -1345,20 +1386,26 @@ mod tests {
         );
         a.record_failure(Error::new(crate::ErrorKind::Http), t(30));
         assert_eq!(a.unmanaged_runtimes(3), 1);
-        a.record_success(u(79.0, 13.6, 5), t(60), &set(&["s1", "s2", "s3"]), None);
+        a.record_success(
+            u(79.0, 13.6, 5),
+            t(60),
+            secs(60),
+            &set(&["s1", "s2", "s3"]),
+            None,
+        );
         assert_eq!(
             a.unmanaged_runtimes(0),
             2,
             "a successful reading updates the count"
         );
-        a.record_success(u(78.0, 13.6, 1), t(90), &set(&["s1", "s2"]), None);
+        a.record_success(u(78.0, 13.6, 1), t(90), secs(90), &set(&["s1", "s2"]), None);
         assert_eq!(a.unmanaged_runtimes(0), 0, "subtraction saturates");
     }
 
     #[test]
     fn older_usage_caches_fall_back_to_known_sessions() {
         let mut a = AccountUsage::default();
-        a.record_success(u(80.0, 13.6, 3), t(0), &set(&["s1", "s2"]), None);
+        a.record_success(u(80.0, 13.6, 3), t(0), secs(0), &set(&["s1", "s2"]), None);
         let mut value = serde_json::to_value(&a).unwrap();
         value.as_object_mut().unwrap().remove("managed_at_reading");
         value.as_object_mut().unwrap().remove("ownership_verified");

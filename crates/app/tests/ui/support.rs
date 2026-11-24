@@ -481,6 +481,10 @@ impl colab_playground_core::clock::Clock for SwitchedClock {
         colab_playground_core::clock::Clock::now(&self.inner)
     }
 
+    fn steady(&self) -> Duration {
+        colab_playground_core::clock::Clock::steady(&self.inner)
+    }
+
     fn sleep(
         &self,
         duration: Duration,

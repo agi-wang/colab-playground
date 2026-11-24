@@ -5,13 +5,18 @@
 //! [`ManualClock`] while the real app uses [`SystemClock`].
 
 use std::sync::atomic::{AtomicU8, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, LazyLock, Mutex};
 use std::time::{Duration, Instant, SystemTime};
 
 use crate::error::{Error, Result};
 
 pub trait Clock: Send + Sync {
     fn now(&self) -> SystemTime;
+
+    /// Time that passes at its own pace whatever the system time is set to,
+    /// counted from a moment of the clock's choosing. For how long something
+    /// lasted, where a step of the system time would count as time passed.
+    fn steady(&self) -> Duration;
 
     /// Returns `Err(Cancelled)` if the token fired before the time elapsed.
     /// Implementations must never block forever: [`ManualClock`] advances its
@@ -26,6 +31,11 @@ pub struct SystemClock;
 impl Clock for SystemClock {
     fn now(&self) -> SystemTime {
         SystemTime::now()
+    }
+
+    fn steady(&self) -> Duration {
+        static START: LazyLock<Instant> = LazyLock::new(Instant::now);
+        START.elapsed()
     }
 
     fn sleep(&self, duration: Duration, cancel: &CancelToken) -> Result<()> {
@@ -52,12 +62,14 @@ impl Clock for SystemClock {
 #[derive(Debug, Clone)]
 pub struct ManualClock {
     now: Arc<Mutex<SystemTime>>,
+    steady: Arc<Mutex<Duration>>,
 }
 
 impl ManualClock {
     pub fn new(start: SystemTime) -> Self {
         ManualClock {
             now: Arc::new(Mutex::new(start)),
+            steady: Arc::default(),
         }
     }
 
@@ -70,8 +82,10 @@ impl ManualClock {
     pub fn advance(&self, by: Duration) {
         let mut now = self.now.lock().unwrap_or_else(|e| e.into_inner());
         *now += by;
+        *self.steady.lock().unwrap_or_else(|e| e.into_inner()) += by;
     }
 
+    /// Sets the system time, as its user would: no time passes.
     pub fn set(&self, to: SystemTime) {
         *self.now.lock().unwrap_or_else(|e| e.into_inner()) = to;
     }
@@ -86,6 +100,10 @@ impl Default for ManualClock {
 impl Clock for ManualClock {
     fn now(&self) -> SystemTime {
         *self.now.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    fn steady(&self) -> Duration {
+        *self.steady.lock().unwrap_or_else(|e| e.into_inner())
     }
 
     fn sleep(&self, duration: Duration, cancel: &CancelToken) -> Result<()> {
@@ -241,6 +259,18 @@ mod tests {
             clock.now().duration_since(start).unwrap(),
             Duration::from_secs(20)
         );
+    }
+
+    #[test]
+    fn setting_the_manual_clock_is_no_time_that_passed() {
+        let clock = ManualClock::fixed();
+        let start = clock.steady();
+        clock.advance(Duration::from_secs(20));
+        clock.set(clock.now() + Duration::from_secs(600));
+        clock
+            .sleep(Duration::from_secs(5), &CancelToken::new())
+            .unwrap();
+        assert_eq!(clock.steady() - start, Duration::from_secs(25));
     }
 
     #[test]

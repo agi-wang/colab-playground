@@ -574,7 +574,7 @@ impl World {
         (!outcome.unsettled, vanished)
     }
 
-    fn record_usage(&mut self, id: &AccountId, now: SystemTime, verified: bool) {
+    fn record_usage(&mut self, id: &AccountId, now: SystemTime, steady: Duration, verified: bool) {
         let live = self.live_names(id);
         let fails = self.failures.usage_fetch_fails;
         let reading = self.usage_of(id);
@@ -589,7 +589,7 @@ impl World {
         let entry = self.usage.entry(id.clone()).or_default();
         match (fails, reading) {
             (false, Some(u)) => {
-                entry.record_success(u, now, &live, listed.as_ref());
+                entry.record_success(u, now, steady, &live, listed.as_ref());
                 entry.ownership_verified = live.is_empty() || verified;
                 if verified && let Some(name) = u.sole_session(&live) {
                     let reading = RateReading {
@@ -1428,7 +1428,7 @@ impl Backend for MockBackend {
         };
         for id in ids {
             let (verified, _) = w.reconcile(&id, now);
-            w.record_usage(&id, now, verified);
+            w.record_usage(&id, now, self.cfg.clock.steady(), verified);
         }
         Ok(w.usage_views())
     }
@@ -1640,7 +1640,7 @@ impl Backend for MockBackend {
             for id in &ids {
                 let (verified, vanished) = w.reconcile(id, now);
                 report.vanished.extend(vanished);
-                w.record_usage(id, now, verified);
+                w.record_usage(id, now, self.cfg.clock.steady(), verified);
             }
             w.ledger
                 .all_live()
@@ -2663,6 +2663,10 @@ mod tests {
     impl Clock for HeldRetry {
         fn now(&self) -> SystemTime {
             self.inner.now()
+        }
+
+        fn steady(&self) -> Duration {
+            self.inner.steady()
         }
 
         fn sleep(&self, duration: Duration, cancel: &CancelToken) -> Result<()> {

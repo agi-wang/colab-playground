@@ -929,14 +929,14 @@ impl Inner {
         verified: &BTreeSet<AccountId>,
         listed: &Listed,
     ) {
-        let now = self.now();
+        let (now, steady) = (self.now(), self.cfg.clock.steady());
         for (id, res) in results {
             let live = self.live_names(&id);
             let mut st = self.st();
             let entry = st.usage.entry(id.clone()).or_default();
             match res {
                 Ok(u) => {
-                    entry.record_success(u, now, &live, listed.get(&id));
+                    entry.record_success(u, now, steady, &live, listed.get(&id));
                     entry.ownership_verified = live.is_empty() || verified.contains(&id);
                     let snap = entry.snapshot;
                     if let Some(s) = snap {

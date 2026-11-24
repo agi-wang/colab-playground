@@ -28,7 +28,9 @@ use colab_playground_core::real::{RealBackend, RealConfig};
 use colab_playground_core::sessions::{Accelerator, StopReason, WatchdogInfo};
 use colab_playground_core::tunnel::{TunnelEvent, TunnelSpec, TunnelState};
 use colab_playground_core::vm::RunState;
-use colab_playground_core::{CancelToken, Defaults, ErrorKind, Host, ManualClock, Toolchain};
+use colab_playground_core::{
+    CancelToken, Clock, Defaults, ErrorKind, Host, ManualClock, Toolchain,
+};
 use serde_json::{Value, json};
 
 struct Fixture {
@@ -1340,6 +1342,41 @@ fn an_unmanaged_runtime_replaced_between_two_usage_readings_is_a_change() {
             .unwrap();
         let rate = t4.estimated_rate_cu_per_hour.unwrap();
         assert!((rate - expected).abs() < 1e-9, "{rate} (swap: {swap})");
+    }
+}
+
+#[test]
+fn a_step_of_the_system_time_settles_no_usage_reading() {
+    // An A100 and a T4 start, are read once, and the A100 stops ten minutes later.
+    // `step`: they were no ten minutes, the system time was set ahead.
+    for (step, expected) in [(false, 1.76), (true, (11.77 + 1.76) / 2.0)] {
+        let f = fixture();
+        f.adopt_alice();
+        f.b.refresh_usage(&[], &nc()).unwrap();
+        f.provision("a100", Accelerator::A100);
+        f.provision("t4", Accelerator::T4);
+        f.b.refresh_usage(&[], &nc()).unwrap();
+        let ten_minutes = Duration::from_secs(600);
+        if step {
+            f.clock.set(f.clock.now() + ten_minutes);
+        } else {
+            f.clock.advance(ten_minutes);
+        }
+        f.b.refresh_usage(&[], &nc()).unwrap();
+        let runtimes = f.b.runtimes(&nc()).unwrap().runtimes;
+        let a100 = runtimes
+            .iter()
+            .find(|r| r.id.name.as_deref() == Some("a100"))
+            .unwrap();
+        f.b.stop_session(&a100.id, StopOptions::default(), &nc())
+            .unwrap();
+        for _ in 0..5 {
+            f.b.refresh_usage(&[], &nc()).unwrap();
+            f.clock.advance(Duration::from_secs(30));
+        }
+        let runtimes = f.b.runtimes(&nc()).unwrap().runtimes;
+        let rate = runtimes[0].estimated_rate_cu_per_hour.unwrap();
+        assert!((rate - expected).abs() < 1e-9, "{rate} (step: {step})");
     }
 }
 
