@@ -578,16 +578,18 @@ impl World {
         let live = self.live_names(id);
         let fails = self.failures.usage_fetch_fails;
         let reading = self.usage_of(id);
-        let listed: BTreeSet<String> = self
-            .runtimes
-            .iter()
-            .filter(|r| &r.account == id)
-            .map(|r| r.endpoint.clone())
-            .collect();
+        // As on the real backend, a round whose listing failed has no endpoints.
+        let listed: Option<BTreeSet<String>> = (!self.listing_fails_for(id)).then(|| {
+            self.runtimes
+                .iter()
+                .filter(|r| &r.account == id)
+                .map(|r| r.endpoint.clone())
+                .collect()
+        });
         let entry = self.usage.entry(id.clone()).or_default();
         match (fails, reading) {
             (false, Some(u)) => {
-                entry.record_success(u, now, &live, Some(&listed));
+                entry.record_success(u, now, &live, listed.as_ref());
                 entry.ownership_verified = live.is_empty() || verified;
                 if verified && let Some(name) = u.sole_session(&live) {
                     let reading = RateReading {
@@ -2417,6 +2419,66 @@ mod tests {
         m.set_failures(f);
         let stale = m.refresh_usage(&[], &nc()).unwrap();
         assert!(stale[0].snapshot.unwrap().stale);
+    }
+
+    #[test]
+    fn a_round_whose_listing_failed_compares_the_number_of_runtimes_only() {
+        // An A100 and a T4 start beside a runtime that the browser started. The A100 stops
+        // and another runtime takes the place of the browser's before the next reading.
+        // `fails`: the listing of that reading fails, so the two cannot be told apart.
+        let swapped = 11.77 + 1.76 - (11.77 + 0.08 - 4.82);
+        for (fails, expected) in [(false, (11.77 + 1.76) / 2.0), (true, swapped)] {
+            let (m, clock) = mock(MockScenario::single());
+            let account = m.w().active.clone().unwrap();
+            let hold = || {
+                for _ in 0..5 {
+                    m.refresh_usage(&[], &nc()).unwrap();
+                    clock.advance(Duration::from_secs(30));
+                }
+            };
+            let start = |accelerator| {
+                let spec = ProvisionSpec {
+                    accelerator,
+                    min_vram_mib: None,
+                    ..m.defaults().provision_spec(m.new_session_name(None))
+                };
+                let (tx, _rx) = mpsc::channel();
+                m.provision(spec, tx, &nc()).unwrap().name
+            };
+            let stop = |endpoint: String, name: Option<String>| {
+                let target = RuntimeRef {
+                    account: account.clone(),
+                    endpoint,
+                    name,
+                };
+                m.stop_session(&target, StopOptions::default(), &nc())
+                    .unwrap();
+            };
+            let browser = m.add_unmanaged_runtime(&account, Accelerator::None);
+            hold();
+            let a100 = start(Accelerator::A100);
+            let t4 = start(Accelerator::T4);
+            hold();
+            let endpoint = {
+                let w = m.w();
+                let r = w.runtimes.iter().find(|r| r.name.as_ref() == Some(&a100));
+                r.unwrap().endpoint.clone()
+            };
+            stop(endpoint, Some(a100));
+            stop(browser, None);
+            m.add_unmanaged_runtime(&account, Accelerator::L4);
+            m.set_failures(MockFailures {
+                runtimes_listing_fails: fails,
+                ..Default::default()
+            });
+            m.refresh_usage(&[], &nc()).unwrap();
+            m.set_failures(MockFailures::default());
+            hold();
+            let views = m.refresh_usage(&[], &nc()).unwrap();
+            let view = views.iter().find(|v| v.account == account).unwrap();
+            let rate = view.session_rates[&t4];
+            assert!((rate - expected).abs() < 1e-9, "{rate} (fails: {fails})");
+        }
     }
 
     #[test]
