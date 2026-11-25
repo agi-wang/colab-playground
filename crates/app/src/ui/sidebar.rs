@@ -1,25 +1,23 @@
-//! The sidebar: account switcher, navigation, and the usage and demo badges. The app mark
+//! The sidebar: W-ID status, navigation, and the usage and demo badges. The app mark
 //! sits above it in the title strip (`titlebar`).
 
 use colab_playground_core::backend::AccountUsageView;
 use ely_gpui_component::{
     data_display::{Badge, Tone},
     layout::Sidebar,
-    menus::{Menu, MenuItem, menu_under},
     navigation::NavItem,
-    primitives::{FocusRing, Icon, IconName, Tooltip},
-    theme::{ActiveTheme, ControlSize, IconSize, Radius, TextSize},
+    primitives::{IconName, Tooltip},
 };
 use gpui::{
-    App, Entity, InteractiveElement, IntoElement, ParentElement, RenderOnce, Role, SharedString,
-    StatefulInteractiveElement, Styled, Window, div,
+    App, Entity, InteractiveElement, IntoElement, ParentElement, SharedString,
+    StatefulInteractiveElement, Styled, div,
 };
 
 use crate::{
     backend, format,
     i18n::{keys, tr, tr_args},
     route::Route,
-    state::{AppState, SignInStatus, usage_is_stale, usage_stale_note},
+    state::{AppState, Load, usage_is_stale, usage_stale_note},
     ui::{tagged, usage::eta},
 };
 
@@ -71,130 +69,46 @@ pub fn render(state: &AppState, handle: &Entity<AppState>, cx: &App) -> impl Int
     )
 }
 
-/// The account switcher: the active account with a menu to switch, add or manage; "Not
-/// signed in" (leading to Accounts) otherwise.
+/// The W-ID identity. Google account switching lives on the Accounts page.
 fn account_slot(state: &AppState, handle: &Entity<AppState>, cx: &App) -> impl IntoElement {
-    let signed_in = matches!(state.sign_in_status(), SignInStatus::SignedIn { .. });
-    let accounts = state.accounts().ready().filter(|_| signed_in);
-    let Some(view) = accounts else {
-        let handle = handle.clone();
-        return div()
-            .id(ACCOUNT_SLOT_SELECTOR)
-            .tooltip(Tooltip::text(tr(cx, keys::SHELL_ACCOUNT_HINT)))
-            .child(tagged(
-                ACCOUNT_SLOT_SELECTOR,
-                NavItem::new(
-                    "account-slot",
-                    IconName::UserPlus,
-                    tr(cx, keys::SHELL_ACCOUNT_SIGNED_OUT),
-                )
-                .on_click(move |_, cx| {
-                    handle.update(cx, |state, cx| state.navigate(Route::Accounts, cx))
-                }),
-            ))
-            .into_any_element();
+    let (status, tip) = if state.is_busy(crate::state::Op::SyncStatus) {
+        (
+            tr(cx, keys::W_ID_SIDEBAR_CHECKING),
+            tr(cx, keys::SYNC_STATUS_CHECKING),
+        )
+    } else {
+        match state.sync_status() {
+            Load::Ready(signed_in) if signed_in.signed_in => (
+                tr(cx, keys::W_ID_SIDEBAR_SIGNED_IN),
+                signed_in
+                    .email
+                    .as_deref()
+                    .map_or_else(|| tr(cx, keys::SYNC_STATUS_SIGNED_IN), SharedString::from),
+            ),
+            Load::Ready(_) => (
+                tr(cx, keys::W_ID_SIDEBAR_SIGNED_OUT),
+                tr(cx, keys::SYNC_STATUS_SIGNED_OUT),
+            ),
+            Load::Failed(_) => (
+                tr(cx, keys::W_ID_SIDEBAR_FAILED),
+                tr(cx, keys::SYNC_STATUS_FAILED),
+            ),
+            Load::Idle | Load::Loading => (
+                tr(cx, keys::W_ID_SIDEBAR_CHECKING),
+                tr(cx, keys::SYNC_STATUS_CHECKING),
+            ),
+        }
     };
-    let label = SharedString::from(format::email(cx, state.active_email().as_deref()));
-    let switches: Vec<MenuItem> = view
-        .accounts
-        .iter()
-        .map(|account| {
-            let active = view.active.as_ref() == Some(&account.id);
-            let (id, handle) = (account.id.clone(), handle.clone());
-            let email = format::email(cx, account.email.as_deref());
-            MenuItem::radio(email, active).on_click(move |_, cx| {
-                if !active {
-                    handle.update(cx, |state, cx| state.request_switch(id.clone(), cx));
-                }
-            })
-        })
-        .collect();
-    let (add, manage) = (handle.clone(), handle.clone());
-    let menu = Menu::new()
-        .group(tr(cx, keys::SWITCHER_GROUP), switches)
-        .separator()
-        .item(
-            MenuItem::new(tr(cx, keys::SWITCHER_ADD))
-                .icon(IconName::UserPlus)
-                .on_click(move |_, cx| add.update(cx, |state, cx| state.open_add_account(cx))),
-        )
-        .item(
-            MenuItem::new(tr(cx, keys::SWITCHER_MANAGE))
-                .icon(IconName::Users)
-                .on_click(move |_, cx| {
-                    manage.update(cx, |state, cx| state.navigate(Route::Accounts, cx))
-                }),
-        );
-    AccountSwitcher { label, menu }.into_any_element()
-}
-
-/// The signed-in account slot. It is laid out like a `NavItem` (same height, padding, icon
-/// size and hover) so its icon and label line up with the nav items under it, and opens
-/// `menu` under itself. Ely's `DropdownMenu` is a centred button, so the trigger is ours and
-/// the menu is hosted with `menu_under`.
-#[derive(IntoElement)]
-struct AccountSwitcher {
-    label: SharedString,
-    menu: Menu,
-}
-
-impl RenderOnce for AccountSwitcher {
-    #[expect(
-        clippy::disallowed_methods,
-        reason = "no Ely menu trigger is laid out like a `NavItem`; see `AccountSwitcher`"
-    )]
-    fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
-        let theme = cx.theme();
-        let colors = &theme.colors;
-        let (fg, muted, subtle, hover) =
-            (colors.fg, colors.fg_muted, colors.fg_subtle, colors.hover);
-        let trigger = div()
-            .id("account-switcher-trigger")
-            .debug_selector(|| ACCOUNT_SLOT_SELECTOR.into())
-            .role(Role::Button)
-            .aria_label(self.label.clone())
-            .w_full()
-            .flex()
-            .items_center()
-            .gap_2()
-            .px_2()
-            .h(theme.control_height(ControlSize::Md))
-            .rounded(theme.radius(Radius::Md))
-            .border_1()
-            .text_size(theme.text_size(TextSize::Sm))
-            .text_color(muted)
-            .cursor_pointer()
-            .tab_index(0)
-            .focus_ring(cx)
-            .hover(move |style| style.bg(hover).text_color(fg))
-            .child(Icon::new(IconName::User).size(IconSize::Sm).color(muted))
-            .child(
-                div()
-                    .flex_1()
-                    .min_w_0()
-                    .overflow_hidden()
-                    .whitespace_nowrap()
-                    .text_ellipsis()
-                    .child(self.label),
-            )
-            .child(
-                Icon::new(IconName::ChevronDown)
-                    .size(IconSize::Sm)
-                    .color(subtle),
-            );
-        menu_under(
-            "account-switcher".into(),
-            &self.menu,
-            move |click| {
-                trigger
-                    .on_click(move |event, window, cx| click(event, window, cx))
-                    .into_any_element()
-            },
-            window,
-            cx,
-        )
-        .w_full()
-    }
+    let handle = handle.clone();
+    div()
+        .id(ACCOUNT_SLOT_SELECTOR)
+        .tooltip(Tooltip::text(tip))
+        .child(tagged(
+            ACCOUNT_SLOT_SELECTOR,
+            NavItem::new("account-slot", IconName::User, "W-ID")
+                .count(status)
+                .on_click(move |_, cx| handle.update(cx, |state, cx| state.open_sync(cx))),
+        ))
 }
 
 /// Balance · burn rate of the active account (stale marked, unknown never shown as zero) and

@@ -1,14 +1,11 @@
 //! Accounts: adding (code, wrong code, cancel), switching with its impact, removing, the
-//! keyring state and the switcher, over the headless mock.
+//! keyring state, over the headless mock.
 
 use colab_playground::{
     i18n::keys,
     route::Route,
     state::{AccountDialog, AddPhase, Load, RemoveBlock, SignInStatus, sign_in_status},
-    ui::{
-        pages::accounts::{ADD_SELECTOR, remove_selector, row_selector, switch_selector},
-        sidebar::ACCOUNT_SLOT_SELECTOR,
-    },
+    ui::pages::accounts::{ADD_SELECTOR, remove_selector, row_selector, switch_selector},
 };
 use colab_playground_core::{
     ErrorKind,
@@ -173,17 +170,6 @@ fn switching_shows_what_keeps_running_then_switches(cx: &mut TestAppContext) {
     assert!(dialog(&mut app).is_none());
     assert_eq!(active_email(&mut app).as_deref(), Some("lin@example.com"));
     assert!(app.shown(&row_selector("lin@example.com", true)));
-}
-
-#[gpui::test]
-fn the_switcher_in_the_sidebar_opens_the_same_confirmation(cx: &mut TestAppContext) {
-    let mut app = TestApp::new(cx);
-    app.click(ACCOUNT_SLOT_SELECTOR);
-    app.click("menu-row-lin@example.com");
-    assert!(matches!(
-        dialog(&mut app),
-        Some(AccountDialog::Switch { .. })
-    ));
 }
 
 #[gpui::test]

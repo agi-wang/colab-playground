@@ -112,6 +112,8 @@ def access_token(allow_login=True):
                         updated["refresh_token"] = refresh
                     save_auth(updated)
                     return updated["access_token"]
+            elif status not in (400, 401):
+                raise RuntimeError("W-ID token refresh failed: HTTP %d" % status)
     if not allow_login:
         raise RuntimeError("W-ID login required")
     return oauth_login()
@@ -253,8 +255,22 @@ def main():
         print("W-ID login complete")
         return
     if args.command == "status":
-        access_token(False)
-        print("W-ID login ready")
+        try:
+            token = access_token(False)
+        except RuntimeError as error:
+            if str(error) != "W-ID login required":
+                raise
+            print(json.dumps({"signed_in": False, "email": None}))
+            return
+        status, _, body = request(ISSUER + "/oauth/userinfo", token=token)
+        if status == 401:
+            print(json.dumps({"signed_in": False, "email": None}))
+            return
+        if status != 200:
+            raise RuntimeError("W-ID status failed: HTTP %d" % status)
+        user = json.loads(body)
+        email = user.get("email")
+        print(json.dumps({"signed_in": True, "email": email if isinstance(email, str) else None}))
         return
     if args.command == "begin":
         flow = oauth_begin()

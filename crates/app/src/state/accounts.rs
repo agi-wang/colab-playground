@@ -9,7 +9,7 @@ use std::time::SystemTime;
 use colab_playground_core::{
     Error, ErrorKind,
     accounts::{Account, AccountId, AccountsView},
-    backend::{AccountUsageView, LoginFlow, SwitchImpact, SyncLogin},
+    backend::{AccountUsageView, LoginFlow, SwitchImpact, SyncLogin, SyncStatus},
     host::ProbeReport,
 };
 use ely_gpui_component::{feedback::Toast, primitives::Severity};
@@ -175,6 +175,25 @@ impl AppState {
         sign_in_status(&self.probe, &self.accounts)
     }
 
+    pub fn sync_status(&self) -> &Load<SyncStatus> {
+        &self.sync_status
+    }
+
+    pub fn load_sync_status(&mut self, cx: &mut Context<Self>) {
+        self.sync_status.begin();
+        self.run_backend(
+            Op::SyncStatus,
+            cx,
+            |backend, cancel| backend.sync_status(cancel),
+            |state, result, _| {
+                state.sync_status = match result {
+                    Ok(status) => Load::Ready(status),
+                    Err(error) => Load::Failed(error),
+                };
+            },
+        );
+    }
+
     /// The rows of the Accounts page, active first.
     pub fn account_rows(&self) -> Vec<AccountRow> {
         let Some(view) = self.accounts.ready() else {
@@ -275,6 +294,7 @@ impl AppState {
     pub fn open_sync(&mut self, cx: &mut Context<Self>) {
         self.overlay = None;
         self.dialog = Some(AccountDialog::Sync(SyncPhase::Intro));
+        self.load_sync_status(cx);
         cx.notify();
     }
 
@@ -288,6 +308,7 @@ impl AppState {
                 Ok(login) => {
                     if login.url.is_empty() {
                         state.dialog = Some(AccountDialog::Sync(SyncPhase::Choose));
+                        state.load_sync_status(cx);
                     } else {
                         cx.open_url(&login.url);
                         state.dialog = Some(AccountDialog::Sync(SyncPhase::Waiting(login)));
@@ -304,13 +325,16 @@ impl AppState {
             Op::SyncLogin,
             cx,
             |backend, cancel| backend.finish_sync_login(cancel),
-            |state, result, _| {
+            |state, result, cx| {
                 if matches!(
                     state.dialog,
                     Some(AccountDialog::Sync(SyncPhase::Waiting(_)))
                 ) {
                     state.dialog = Some(AccountDialog::Sync(match result {
-                        Ok(()) => SyncPhase::Choose,
+                        Ok(()) => {
+                            state.load_sync_status(cx);
+                            SyncPhase::Choose
+                        }
                         Err(error) => SyncPhase::Failed(error),
                     }));
                 }

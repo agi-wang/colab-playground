@@ -1,4 +1,8 @@
-use colab_playground::{route::Route, ui::sidebar};
+use colab_playground::{
+    route::Route,
+    state::{AccountDialog, SyncPhase},
+    ui::sidebar,
+};
 use gpui::TestAppContext;
 
 use crate::support::TestApp;
@@ -33,7 +37,7 @@ fn every_sidebar_entry_opens_its_page(cx: &mut TestAppContext) {
 }
 
 #[gpui::test]
-fn signed_out_the_account_slot_leads_to_accounts(cx: &mut TestAppContext) {
+fn w_id_slot_opens_sync_without_leaving_the_current_page(cx: &mut TestAppContext) {
     let options =
         crate::support::Options::scenario(colab_playground_core::mock::MockScenario::signed_out());
     let mut app = TestApp::with(cx, options);
@@ -43,7 +47,11 @@ fn signed_out_the_account_slot_leads_to_accounts(cx: &mut TestAppContext) {
         "mock mode says it is demo data"
     );
     app.click(sidebar::ACCOUNT_SLOT_SELECTOR);
-    assert_eq!(app.route(), Route::Accounts);
+    assert_eq!(app.route(), Route::Overview);
+    assert!(matches!(
+        app.read(|state, _| state.dialog().cloned()),
+        Some(AccountDialog::Sync(SyncPhase::Intro))
+    ));
 }
 
 #[gpui::test]

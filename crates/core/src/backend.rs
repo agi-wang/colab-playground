@@ -249,6 +249,12 @@ pub struct SyncLogin {
     pub code: String,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SyncStatus {
+    pub signed_in: bool,
+    pub email: Option<String>,
+}
+
 pub trait Backend: Send + Sync {
     fn kind(&self) -> BackendKind;
     fn defaults(&self) -> Defaults;
@@ -273,6 +279,8 @@ pub trait Backend: Send + Sync {
     /// Saves the credential currently in the CLI slot as an account.
     fn adopt_active_account(&self, cancel: &CancelToken) -> Result<Account>;
     fn begin_add_account(&self, cancel: &CancelToken) -> Result<Box<dyn LoginFlow>>;
+    /// Checks the saved W-ID login and returns its email when available.
+    fn sync_status(&self, cancel: &CancelToken) -> Result<SyncStatus>;
     /// Starts W-ID device login for encrypted account sync.
     fn begin_sync_login(&self, cancel: &CancelToken) -> Result<SyncLogin>;
     /// Waits for the W-ID device approval and stores its token in the OS keyring.

@@ -1294,12 +1294,16 @@ impl Backend for RealBackend {
         self.inner.adopt_locked(cancel)
     }
 
+    fn sync_status(&self, cancel: &CancelToken) -> Result<SyncStatus> {
+        let output = self.inner.helper()?.sync_call("status", &[], &[], cancel)?;
+        serde_json::from_str(&output)
+            .map_err(|_| Error::new(ErrorKind::Parse).detail("invalid W-ID status response"))
+    }
+
     fn begin_sync_login(&self, cancel: &CancelToken) -> Result<SyncLogin> {
         if self
-            .inner
-            .helper()?
-            .sync_call("status", &[], &[], cancel)
-            .is_ok()
+            .sync_status(cancel)
+            .is_ok_and(|status| status.signed_in)
         {
             return Ok(SyncLogin {
                 url: String::new(),

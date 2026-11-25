@@ -38,6 +38,7 @@ pub enum Op {
     /// Starting or finishing a sign-in.
     Login,
     LoginRollback,
+    SyncStatus,
     SyncBegin,
     SyncLogin,
     SyncTransfer,
