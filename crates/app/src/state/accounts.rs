@@ -9,7 +9,7 @@ use std::time::SystemTime;
 use colab_playground_core::{
     Error, ErrorKind,
     accounts::{Account, AccountId, AccountsView},
-    backend::{AccountUsageView, LoginFlow, SwitchImpact, SyncLogin, SyncStatus},
+    backend::{AccountUsageView, LoginFlow, SwitchImpact, SyncHistory, SyncLogin, SyncStatus},
     host::ProbeReport,
 };
 use ely_gpui_component::{feedback::Toast, primitives::Severity};
@@ -179,17 +179,53 @@ impl AppState {
         &self.sync_status
     }
 
+    pub fn sync_history(&self) -> &Load<SyncHistory> {
+        &self.sync_history
+    }
+
+    pub fn load_sync_history(&mut self, cx: &mut Context<Self>) {
+        self.sync_history.begin();
+        self.run_backend(
+            Op::SyncHistory,
+            cx,
+            |backend, cancel| backend.sync_history(cancel),
+            |state, result, _| {
+                state.sync_history = match result {
+                    Ok(history) => Load::Ready(history),
+                    Err(error) => Load::Failed(error),
+                };
+            },
+        );
+    }
+
     pub fn load_sync_status(&mut self, cx: &mut Context<Self>) {
         self.sync_status.begin();
         self.run_backend(
             Op::SyncStatus,
             cx,
             |backend, cancel| backend.sync_status(cancel),
-            |state, result, _| {
+            |state, result, cx| {
+                let signed_in = matches!(&result, Ok(status) if status.signed_in);
+                let show_history = matches!(
+                    state.dialog,
+                    Some(AccountDialog::Sync(SyncPhase::Intro | SyncPhase::Choose))
+                ) && signed_in;
+                if let Some(AccountDialog::Sync(phase)) = &mut state.dialog {
+                    if matches!(phase, SyncPhase::Intro | SyncPhase::Choose) {
+                        *phase = if signed_in {
+                            SyncPhase::Choose
+                        } else {
+                            SyncPhase::Intro
+                        };
+                    }
+                }
                 state.sync_status = match result {
                     Ok(status) => Load::Ready(status),
                     Err(error) => Load::Failed(error),
                 };
+                if show_history {
+                    state.load_sync_history(cx);
+                }
             },
         );
     }
@@ -293,7 +329,12 @@ impl AppState {
 
     pub fn open_sync(&mut self, cx: &mut Context<Self>) {
         self.overlay = None;
-        self.dialog = Some(AccountDialog::Sync(SyncPhase::Intro));
+        let phase = if matches!(&self.sync_status, Load::Ready(status) if status.signed_in) {
+            SyncPhase::Choose
+        } else {
+            SyncPhase::Intro
+        };
+        self.dialog = Some(AccountDialog::Sync(phase));
         self.load_sync_status(cx);
         cx.notify();
     }

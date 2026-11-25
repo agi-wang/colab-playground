@@ -1321,6 +1321,27 @@ impl Backend for MockBackend {
         })
     }
 
+    fn sync_history(&self, _: &CancelToken) -> Result<SyncHistory> {
+        let at = self
+            .now_()
+            .duration_since(SystemTime::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs() as i64;
+        Ok(SyncHistory {
+            login: vec![SyncLoginEvent {
+                action: "passkey_login".into(),
+                at,
+            }],
+            local: vec![SyncLocalEvent {
+                action: "push".into(),
+                result: "success".into(),
+                at,
+            }],
+            login_error: false,
+            local_error: false,
+        })
+    }
+
     fn begin_sync_login(&self, _: &CancelToken) -> Result<SyncLogin> {
         Ok(SyncLogin {
             url: String::new(),

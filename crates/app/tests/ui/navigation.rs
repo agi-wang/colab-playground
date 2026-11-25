@@ -50,7 +50,7 @@ fn w_id_slot_opens_sync_without_leaving_the_current_page(cx: &mut TestAppContext
     assert_eq!(app.route(), Route::Overview);
     assert!(matches!(
         app.read(|state, _| state.dialog().cloned()),
-        Some(AccountDialog::Sync(SyncPhase::Intro))
+        Some(AccountDialog::Sync(SyncPhase::Choose))
     ));
 }
 

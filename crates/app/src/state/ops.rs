@@ -39,6 +39,7 @@ pub enum Op {
     Login,
     LoginRollback,
     SyncStatus,
+    SyncHistory,
     SyncBegin,
     SyncLogin,
     SyncTransfer,

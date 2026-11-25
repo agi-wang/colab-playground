@@ -3,7 +3,7 @@
 //! button carries a selector (`dialog-cancel`, `add-continue`, `add-submit`,
 //! `add-start-again`, `add-open-again`, `switch-confirm`, `remove-confirm`).
 
-use std::time::SystemTime;
+use std::time::{Duration, SystemTime};
 
 use colab_playground_core::backend::SwitchImpact;
 use ely_gpui_component::{
@@ -102,11 +102,7 @@ fn sync(phase: &SyncPhase, state: &AppState, handle: &Entity<AppState>, cx: &App
             ),
     );
     let cancel = tr(cx, keys::ACTION_CANCEL);
-    let sign_in = if matches!(state.sync_status(), Load::Ready(status) if status.signed_in) {
-        tr(cx, keys::SYNC_CONTINUE)
-    } else {
-        tr(cx, keys::ACTION_SIGN_IN)
-    };
+    let sign_in = tr(cx, keys::ACTION_SIGN_IN);
     let open_again = tr(cx, keys::ADD_OPEN_AGAIN);
     let upload_label = tr(cx, keys::SYNC_UPLOAD);
     let restore_label = tr(cx, keys::SYNC_RESTORE);
@@ -159,6 +155,7 @@ fn sync(phase: &SyncPhase, state: &AppState, handle: &Entity<AppState>, cx: &App
             let restore = handle.clone();
             dialog
                 .child(Paragraph::new(tr(cx, keys::SYNC_CHOOSE)))
+                .child(sync_history(state, cx))
                 .action({
                     let handle = handle.clone();
                     move |_| Layer::Dialog.cancel_button(cancel, handle)
@@ -166,14 +163,17 @@ fn sync(phase: &SyncPhase, state: &AppState, handle: &Entity<AppState>, cx: &App
                 .action(move |_| {
                     Button::new("sync-upload", upload_label)
                         .primary()
+                        .disabled(checking_status)
                         .on_click(move |_, _, cx| {
                             upload.update(cx, |state, cx| state.choose_sync(false, cx))
                         })
                 })
                 .action(move |_| {
-                    Button::new("sync-restore", restore_label).on_click(move |_, _, cx| {
-                        restore.update(cx, |state, cx| state.choose_sync(true, cx))
-                    })
+                    Button::new("sync-restore", restore_label)
+                        .disabled(checking_status)
+                        .on_click(move |_, _, cx| {
+                            restore.update(cx, |state, cx| state.choose_sync(true, cx))
+                        })
                 })
         }
         SyncPhase::Pin {
@@ -243,6 +243,83 @@ fn sync(phase: &SyncPhase, state: &AppState, handle: &Entity<AppState>, cx: &App
         }
     };
     dialog.into_any_element()
+}
+
+fn sync_history(state: &AppState, cx: &App) -> AnyElement {
+    let mut content = div().flex().flex_col().gap_2();
+    if state.is_busy(Op::SyncHistory) {
+        return content
+            .child(busy_line(
+                "sync-history-loading",
+                tr(cx, keys::SYNC_LOG_LOADING),
+            ))
+            .into_any_element();
+    }
+    let Load::Ready(history) = state.sync_history() else {
+        return content
+            .child(InlineMessage::new(
+                Severity::Warning,
+                tr(cx, keys::SYNC_LOG_UNAVAILABLE),
+            ))
+            .into_any_element();
+    };
+    content = content.child(Paragraph::new(tr(cx, keys::SYNC_LOGIN_LOG_TITLE)));
+    if history.login_error {
+        content = content.child(Caption::new(tr(cx, keys::SYNC_LOG_UNAVAILABLE)));
+    } else if history.login.is_empty() {
+        content = content.child(Caption::new(tr(cx, keys::SYNC_LOGIN_LOG_EMPTY)));
+    } else {
+        for event in &history.login {
+            let action = match event.action.as_str() {
+                "passkey_login" => tr(cx, keys::SYNC_LOGIN_PASSKEY),
+                "github_login" => SharedString::from("GitHub"),
+                "orcid_login" => SharedString::from("ORCID"),
+                "oauth_login" => tr(cx, keys::SYNC_LOGIN_OAUTH),
+                _ => tr(cx, keys::SYNC_LOGIN_OTHER),
+            };
+            content = content.child(Caption::new(format!(
+                "{action} · {}",
+                sync_log_age(event.at, cx)
+            )));
+        }
+    }
+    content = content.child(Paragraph::new(tr(cx, keys::SYNC_LOCAL_LOG_TITLE)));
+    if history.local_error {
+        content = content.child(Caption::new(tr(cx, keys::SYNC_LOG_UNAVAILABLE)));
+    } else if history.local.is_empty() {
+        content = content.child(Caption::new(tr(cx, keys::SYNC_LOCAL_LOG_EMPTY)));
+    } else {
+        for event in &history.local {
+            let action = tr(
+                cx,
+                if event.action == "pull" {
+                    keys::SYNC_RESTORE
+                } else {
+                    keys::SYNC_UPLOAD
+                },
+            );
+            let result = tr(
+                cx,
+                if event.result == "success" {
+                    keys::SYNC_LOG_SUCCESS
+                } else {
+                    keys::SYNC_LOG_FAILED
+                },
+            );
+            content = content.child(Caption::new(format!(
+                "{action} · {result} · {}",
+                sync_log_age(event.at, cx)
+            )));
+        }
+    }
+    content.into_any_element()
+}
+
+fn sync_log_age(at: i64, cx: &App) -> SharedString {
+    let time = SystemTime::UNIX_EPOCH
+        .checked_add(Duration::from_secs(at.max(0) as u64))
+        .unwrap_or(SystemTime::UNIX_EPOCH);
+    format::age(cx, time, SystemTime::now())
 }
 
 fn add(phase: &AddPhase, handle: &Entity<AppState>, inputs: &Inputs, cx: &App) -> AnyElement {

@@ -1300,6 +1300,15 @@ impl Backend for RealBackend {
             .map_err(|_| Error::new(ErrorKind::Parse).detail("invalid W-ID status response"))
     }
 
+    fn sync_history(&self, cancel: &CancelToken) -> Result<SyncHistory> {
+        let output = self
+            .inner
+            .helper()?
+            .sync_call("history", &[], &[], cancel)?;
+        serde_json::from_str(&output)
+            .map_err(|_| Error::new(ErrorKind::Parse).detail("invalid W-ID history response"))
+    }
+
     fn begin_sync_login(&self, cancel: &CancelToken) -> Result<SyncLogin> {
         if self
             .sync_status(cancel)

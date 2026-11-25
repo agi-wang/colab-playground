@@ -255,6 +255,27 @@ pub struct SyncStatus {
     pub email: Option<String>,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SyncLoginEvent {
+    pub action: String,
+    pub at: i64,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SyncLocalEvent {
+    pub action: String,
+    pub result: String,
+    pub at: i64,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SyncHistory {
+    pub login: Vec<SyncLoginEvent>,
+    pub local: Vec<SyncLocalEvent>,
+    pub login_error: bool,
+    pub local_error: bool,
+}
+
 pub trait Backend: Send + Sync {
     fn kind(&self) -> BackendKind;
     fn defaults(&self) -> Defaults;
@@ -281,6 +302,8 @@ pub trait Backend: Send + Sync {
     fn begin_add_account(&self, cancel: &CancelToken) -> Result<Box<dyn LoginFlow>>;
     /// Checks the saved W-ID login and returns its email when available.
     fn sync_status(&self, cancel: &CancelToken) -> Result<SyncStatus>;
+    /// Reads this user's W-ID login audit and this device's sync activity.
+    fn sync_history(&self, cancel: &CancelToken) -> Result<SyncHistory>;
     /// Starts W-ID device login for encrypted account sync.
     fn begin_sync_login(&self, cancel: &CancelToken) -> Result<SyncLogin>;
     /// Waits for the W-ID device approval and stores its token in the OS keyring.

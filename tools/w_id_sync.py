@@ -7,6 +7,7 @@ No Google credential is printed or stored in a plaintext file.
 
 import argparse
 import base64
+from collections import deque
 import getpass
 import hashlib
 import json
@@ -140,6 +141,56 @@ def data_path():
     return Path.home() / ".local/share/colab-playground/accounts.json"
 
 
+def sync_log_path():
+    return data_path().with_name("sync-log.jsonl")
+
+
+def local_sync_log():
+    try:
+        with sync_log_path().open(encoding="utf-8") as stream:
+            lines = deque(stream, maxlen=20)
+    except FileNotFoundError:
+        return [], False
+    except OSError:
+        return [], True
+    try:
+        events = [json.loads(line) for line in lines]
+        if any(event.get("action") not in ("push", "pull")
+               or event.get("result") not in ("success", "failed")
+               or not isinstance(event.get("at"), int) for event in events):
+            raise ValueError("invalid sync log")
+        return events[::-1], False
+    except (ValueError, AttributeError):
+        return [], True
+
+
+def record_sync(action, result):
+    path = sync_log_path()
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
+        with os.fdopen(fd, "ab") as stream:
+            stream.write((json.dumps({"action": action, "result": result, "at": int(time.time())}) + "\n").encode())
+    except OSError:
+        pass  # A log write must not turn a completed transfer into a reported failure.
+
+
+def history():
+    local, local_error = local_sync_log()
+    login, login_error = [], False
+    try:
+        token = access_token(False)
+        status, _, body = request(ISSUER + "/oauth/login-history", token=token)
+        if status != 200:
+            raise RuntimeError("W-ID login history unavailable")
+        login = json.loads(body)["events"]
+        if not isinstance(login, list):
+            raise ValueError("invalid W-ID login history")
+    except Exception:
+        login_error = True
+    return {"login": login, "local": local, "login_error": login_error, "local_error": local_error}
+
+
 def local_accounts():
     path = data_path()
     if not path.exists():
@@ -245,7 +296,7 @@ def restore(entries, existing=None):
 
 def main():
     parser = argparse.ArgumentParser(description="Sync Colab Playground accounts through W-ID")
-    parser.add_argument("command", choices=("login", "status", "begin", "finish", "push", "pull"))
+    parser.add_argument("command", choices=("login", "status", "history", "begin", "finish", "push", "pull"))
     parser.add_argument("--pin-stdin", action="store_true")
     parser.add_argument("--no-login", action="store_true")
     parser.add_argument("--app-managed", action="store_true")
@@ -272,6 +323,9 @@ def main():
         email = user.get("email")
         print(json.dumps({"signed_in": True, "email": email if isinstance(email, str) else None}))
         return
+    if args.command == "history":
+        print(json.dumps(history()))
+        return
     if args.command == "begin":
         flow = oauth_begin()
         print(json.dumps({"url": flow["verification_uri_complete"], "code": flow["user_code"]}))
@@ -283,25 +337,31 @@ def main():
         oauth_finish(flow)
         print("W-ID login complete")
         return
-    app_input = json.load(sys.stdin) if args.app_managed else None
-    token = access_token(not args.no_login)
-    pin = app_input["pin"] if app_input is not None else (sys.stdin.readline().rstrip("\n") if args.pin_stdin else getpass.getpass("Six-digit sync PIN: "))
-    if len(pin) != 6 or not pin.isascii() or not pin.isdecimal():
-        raise RuntimeError("PIN must contain exactly six digits")
-    key = unlock(token, pin)
-    incoming, etag = remote(token, key)
-    if args.command == "pull":
-        added = restore(incoming, app_input["accounts"] if app_input is not None else None)
-        print(json.dumps({"added": added}) if app_input is not None else "Restored %d account(s)" % len(added))
-    else:
-        entries = merged(vault(app_input["accounts"]["accounts"] if app_input is not None else None), incoming)
-        blob = encrypt(entries, key)
-        if len(blob) > MAX_SNAPSHOT:
-            raise RuntimeError("Encrypted snapshot exceeds 1 MiB")
-        status, _, _ = request(SYNC_URL + "/v1/snapshot", method="PUT", data=blob, token=token, etag=etag)
-        if status != 204:
-            raise RuntimeError("Snapshot upload failed: HTTP %d" % status)
-        print(json.dumps({"added": []}) if app_input is not None else "Synced %d account(s)" % len(entries))
+    try:
+        app_input = json.load(sys.stdin) if args.app_managed else None
+        token = access_token(not args.no_login)
+        pin = app_input["pin"] if app_input is not None else (sys.stdin.readline().rstrip("\n") if args.pin_stdin else getpass.getpass("Six-digit sync PIN: "))
+        if len(pin) != 6 or not pin.isascii() or not pin.isdecimal():
+            raise RuntimeError("PIN must contain exactly six digits")
+        key = unlock(token, pin)
+        incoming, etag = remote(token, key)
+        if args.command == "pull":
+            added = restore(incoming, app_input["accounts"] if app_input is not None else None)
+            record_sync("pull", "success")
+            print(json.dumps({"added": added}) if app_input is not None else "Restored %d account(s)" % len(added))
+        else:
+            entries = merged(vault(app_input["accounts"]["accounts"] if app_input is not None else None), incoming)
+            blob = encrypt(entries, key)
+            if len(blob) > MAX_SNAPSHOT:
+                raise RuntimeError("Encrypted snapshot exceeds 1 MiB")
+            status, _, _ = request(SYNC_URL + "/v1/snapshot", method="PUT", data=blob, token=token, etag=etag)
+            if status != 204:
+                raise RuntimeError("Snapshot upload failed: HTTP %d" % status)
+            record_sync("push", "success")
+            print(json.dumps({"added": []}) if app_input is not None else "Synced %d account(s)" % len(entries))
+    except Exception:
+        record_sync(args.command, "failed")
+        raise
 
 
 if __name__ == "__main__":
