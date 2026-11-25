@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.6.0](https://github.com/agi-wang/colab-playground/compare/v0.5.1...v0.6.0) (2026-11-25)
+
+
+### Added
+
+* **app:** show W-ID status in the sidebar ([08d2363](https://github.com/agi-wang/colab-playground/commit/08d23633450fa66b948a75337d0e4b443dbe877d))
+
 ## [0.5.1](https://github.com/agi-wang/colab-playground/compare/v0.5.0...v0.5.1) (2026-11-24)
 
 
