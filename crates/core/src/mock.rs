@@ -1314,6 +1314,13 @@ impl Backend for MockBackend {
             .ok_or_else(|| Error::new(ErrorKind::AccountNotFound))
     }
 
+    fn sync_status(&self, _: &CancelToken) -> Result<SyncStatus> {
+        Ok(SyncStatus {
+            signed_in: true,
+            email: Some("demo@w-id.example".into()),
+        })
+    }
+
     fn begin_sync_login(&self, _: &CancelToken) -> Result<SyncLogin> {
         Ok(SyncLogin {
             url: String::new(),

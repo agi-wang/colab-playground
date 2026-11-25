@@ -26,7 +26,7 @@ use colab_playground_core::{
     accounts::AccountsView,
     backend::Backend,
     backend::BackendKind as Flavor,
-    backend::LoginFlow,
+    backend::{LoginFlow, SyncStatus},
     host::ProbeReport,
     updater::{Installed, SelfUpdate},
 };
@@ -141,6 +141,7 @@ pub struct AppState {
     probe: Load<ProbeReport>,
     install: InstallState,
     accounts: Load<AccountsView>,
+    sync_status: Load<SyncStatus>,
     recovered_notice: bool,
     dialog: Option<AccountDialog>,
     login_flow: Option<Box<dyn LoginFlow>>,
@@ -280,6 +281,7 @@ impl AppState {
                 probe: Load::Idle,
                 install: InstallState::default(),
                 accounts: Load::Idle,
+                sync_status: Load::Idle,
                 recovered_notice: false,
                 dialog: None,
                 login_flow: None,
@@ -313,6 +315,7 @@ impl AppState {
             }
             state._poller = Some(usage::start_poller(cx));
             state.check_environment(cx);
+            state.load_sync_status(cx);
             state.prepare_updates(cx);
             state
         });

@@ -65,22 +65,14 @@ pub fn render(state: &AppState, handle: &Entity<AppState>, cx: &App) -> Page {
         SignInStatus::SignedIn { .. } | SignInStatus::SignedOut | SignInStatus::Unadopted { .. }
     );
     let add = handle.clone();
-    let sync = handle.clone();
-    let page = super::page(Route::Accounts, keys::ACCOUNTS_SUBTITLE, cx)
-        .action(tagged(
-            ADD_SELECTOR,
-            Button::new("accounts-add", tr(cx, keys::ACTION_ADD_ACCOUNT))
-                .icon(IconName::UserPlus)
-                .primary()
-                .disabled(!can_add)
-                .on_click(move |_, _, cx| add.update(cx, |state, cx| state.open_add_account(cx))),
-        ))
-        .action(tagged(
-            "accounts-sync",
-            Button::new("accounts-sync", tr(cx, keys::SYNC_ACTION))
-                .icon(IconName::RefreshCw)
-                .on_click(move |_, _, cx| sync.update(cx, |state, cx| state.open_sync(cx))),
-        ));
+    let page = super::page(Route::Accounts, keys::ACCOUNTS_SUBTITLE, cx).action(tagged(
+        ADD_SELECTOR,
+        Button::new("accounts-add", tr(cx, keys::ACTION_ADD_ACCOUNT))
+            .icon(IconName::UserPlus)
+            .primary()
+            .disabled(!can_add)
+            .on_click(move |_, _, cx| add.update(cx, |state, cx| state.open_add_account(cx))),
+    ));
     match status {
         SignInStatus::Checking => page.child(busy_line(
             "accounts-loading",

@@ -7,11 +7,10 @@ pub(super) const MESSAGES: Messages = &[
     (NAV_PLUGINS, "プラグイン"),
     (NAV_ACCOUNTS, "アカウント"),
     (NAV_SETTINGS, "設定"),
-    (SHELL_ACCOUNT_SIGNED_OUT, "未ログイン"),
-    (
-        SHELL_ACCOUNT_HINT,
-        "「アカウント」ページでログインしてください",
-    ),
+    (W_ID_SIDEBAR_SIGNED_IN, "ログイン済み"),
+    (W_ID_SIDEBAR_SIGNED_OUT, "未ログイン"),
+    (W_ID_SIDEBAR_CHECKING, "確認中"),
+    (W_ID_SIDEBAR_FAILED, "確認失敗"),
     (SHELL_USAGE, "— CU · — CU/時間"),
     (
         SHELL_USAGE_HINT,
@@ -315,15 +314,24 @@ pub(super) const MESSAGES: Messages = &[
         "先に「概要」ページで Colab CLI をインストールしてください。",
     ),
     (ACCOUNTS_LOADING, "アカウントを読み込んでいます…"),
-    (SWITCHER_GROUP, "アカウントの切り替え"),
-    (SWITCHER_ADD, "アカウントを追加…"),
-    (SWITCHER_MANAGE, "アカウントを管理"),
     // Dialogs
+    (SYNC_STATUS_CHECKING, "W-ID のログイン状態を確認中…"),
+    (SYNC_STATUS_SIGNED_IN, "W-ID にログイン済み"),
+    (SYNC_STATUS_SIGNED_IN_AS, "W-ID にログイン済み：{email}"),
+    (
+        SYNC_STATUS_SIGNED_OUT,
+        "W-ID に未ログインです。上のボタンからログインして同期してください。",
+    ),
+    (
+        SYNC_STATUS_FAILED,
+        "W-ID のログイン状態を確認できません。再試行してください。",
+    ),
+    (SYNC_STATUS_REFRESH, "W-ID のログイン状態を再確認"),
     (SYNC_TITLE, "W-ID で同期"),
-    (SYNC_ACTION, "W-IDでログイン・同期"),
+    (SYNC_CONTINUE, "続行"),
     (
         SYNC_INTRO,
-        "W-ID にログインして保存済みの Google アカウントを端末間で共有します。同期サーバーは PIN で保管庫を解除できます。",
+        "W-ID を使用して保存済みの Google アカウントを端末間で共有します。同期サーバーは PIN で保管庫を解除できます。",
     ),
     (
         SYNC_WAIT,

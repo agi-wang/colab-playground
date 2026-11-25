@@ -1,5 +1,5 @@
 //! The account dialogs: add (sign in with a pasted code), switch (with what it affects) and
-//! remove. Drawn by the root view so they open from any page or the sidebar switcher. Every
+//! remove. Drawn by the root view so they open from any page or the W-ID sidebar slot. Every
 //! button carries a selector (`dialog-cancel`, `add-continue`, `add-submit`,
 //! `add-start-again`, `add-open-again`, `switch-confirm`, `remove-confirm`).
 
@@ -7,7 +7,7 @@ use std::time::SystemTime;
 
 use colab_playground_core::backend::SwitchImpact;
 use ely_gpui_component::{
-    buttons::{Button, ButtonVariant, CopyButton},
+    buttons::{Button, ButtonVariant, CopyButton, IconButton},
     feedback::InlineMessage,
     forms::{Input, PinInput},
     overlays::Dialog,
@@ -45,7 +45,7 @@ pub fn render(
     let dialog = state.dialog()?;
     Some(match dialog {
         AccountDialog::Add(phase) => add(phase, handle, inputs, cx),
-        AccountDialog::Sync(phase) => sync(phase, handle, cx),
+        AccountDialog::Sync(phase) => sync(phase, state, handle, cx),
         AccountDialog::Switch {
             email,
             impact,
@@ -58,14 +58,55 @@ pub fn render(
     })
 }
 
-fn sync(phase: &SyncPhase, handle: &Entity<AppState>, cx: &App) -> AnyElement {
+fn sync(phase: &SyncPhase, state: &AppState, handle: &Entity<AppState>, cx: &App) -> AnyElement {
+    let checking_status = state.is_busy(Op::SyncStatus);
+    let sync_busy = state.is_busy(Op::SyncBegin)
+        || state.is_busy(Op::SyncLogin)
+        || state.is_busy(Op::SyncTransfer);
+    let (severity, message) = if checking_status {
+        (Severity::Info, tr(cx, keys::SYNC_STATUS_CHECKING))
+    } else {
+        match state.sync_status() {
+            Load::Idle | Load::Loading => (Severity::Info, tr(cx, keys::SYNC_STATUS_CHECKING)),
+            Load::Ready(status) if status.signed_in => match status.email.as_deref() {
+                Some(email) => (
+                    Severity::Success,
+                    tr_args(cx, keys::SYNC_STATUS_SIGNED_IN_AS, &[("email", email)]),
+                ),
+                None => (Severity::Success, tr(cx, keys::SYNC_STATUS_SIGNED_IN)),
+            },
+            Load::Ready(_) => (Severity::Warning, tr(cx, keys::SYNC_STATUS_SIGNED_OUT)),
+            Load::Failed(_) => (Severity::Warning, tr(cx, keys::SYNC_STATUS_FAILED)),
+        }
+    };
+    let refresh = handle.clone();
     let dialog = Dialog::new(
         "sync-accounts",
         tr(cx, keys::SYNC_TITLE),
         Layer::Dialog.close(handle),
+    )
+    .child(
+        div()
+            .flex()
+            .items_center()
+            .gap_2()
+            .child(InlineMessage::new(severity, message))
+            .child(
+                IconButton::new("w-id-status-refresh", IconName::RefreshCw)
+                    .variant(ButtonVariant::Ghost)
+                    .tooltip(tr(cx, keys::SYNC_STATUS_REFRESH))
+                    .disabled(checking_status || sync_busy)
+                    .on_click(move |_, _, cx| {
+                        refresh.update(cx, |state, cx| state.load_sync_status(cx))
+                    }),
+            ),
     );
     let cancel = tr(cx, keys::ACTION_CANCEL);
-    let sign_in = tr(cx, keys::ACTION_SIGN_IN);
+    let sign_in = if matches!(state.sync_status(), Load::Ready(status) if status.signed_in) {
+        tr(cx, keys::SYNC_CONTINUE)
+    } else {
+        tr(cx, keys::ACTION_SIGN_IN)
+    };
     let open_again = tr(cx, keys::ADD_OPEN_AGAIN);
     let upload_label = tr(cx, keys::SYNC_UPLOAD);
     let restore_label = tr(cx, keys::SYNC_RESTORE);
@@ -83,6 +124,7 @@ fn sync(phase: &SyncPhase, handle: &Entity<AppState>, cx: &App) -> AnyElement {
                 .action(move |_| {
                     Button::new("sync-start", sign_in)
                         .primary()
+                        .disabled(checking_status)
                         .on_click(move |_, _, cx| {
                             start.update(cx, |state, cx| state.begin_sync(cx))
                         })
